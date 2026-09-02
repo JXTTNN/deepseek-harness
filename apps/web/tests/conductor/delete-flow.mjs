@@ -31,7 +31,10 @@ try {
     const chip = page.locator('button[aria-label="Choose workspace"], button[aria-label="选择工作区"]').first()
     log('chip count', await chip.count())
     if (await chip.count()) {
-      await chip.click()
+      // The hero glow backdrop can sit over the chip (transparent), so Playwright's
+      // actionability check reports it obscured even though a human click lands.
+      // force:true still emits the real pointer event sequence at the element.
+      await chip.click({ force: true })
       // Wait for the directory browser dialog (title) to appear.
       let dialogSeen = false
       for (let i = 0; i < 12; i++) {
@@ -45,7 +48,7 @@ try {
         const open = page.locator('button:has-text("Open"), button:has-text("打开")').first()
         log('open button count', await open.count())
         if (await open.count()) {
-          await open.click().catch((e) => log('open click failed', String(e)))
+          await open.click({ force: true }).catch((e) => log('open click failed', String(e)))
           log('open clicked')
         }
       }
