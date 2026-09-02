@@ -57,10 +57,13 @@ const MAX_APPEND_FILE_BYTES = 2_000_000
 /** Number of tail records kept when an append-only ledger is trimmed. */
 const APPEND_TRIM_KEEP = 2000
 
-/** Server port for team_send HTTP trigger, from env or default. */
+/** Server port for the team_send wake-up HTTP trigger. The web server reads its
+ * port from the `--port` flag (default 8300) via `ctx.webStartup.port`, NOT from
+ * `DSH_PORT`, so prefer the actual URL (`DSH_WEB_URL`) over the misleading
+ * `DSH_PORT` and fall back to the same 8300 default. */
 const SERVER_PORT = parseInt(
-  process.env.DSH_PORT
-  ?? process.env.DSH_WEB_URL?.match(/:(\d+)(?:\/|$)/)?.[1]
+  process.env.DSH_WEB_URL?.match(/:(\d+)(?:\/|$)/)?.[1]
+  ?? process.env.DSH_PORT
   ?? '8300',
   10,
 )
