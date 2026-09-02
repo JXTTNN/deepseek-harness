@@ -1650,24 +1650,29 @@ export function apply(ctx: Context): void {
       const expect = typeof args.expect === 'number' && args.expect > 0 ? Math.floor(args.expect) : 1
 
       if (args.action === 'reset') {
-        try { rmSync(file, { force: true }) } catch { /* best-effort */ }
-        return Promise.resolve({ name, arrived: 0, expect, reached: false, arrivedIds: [] })
+        return withFileLock(file, () => {
+          try { rmSync(file, { force: true }) } catch { /* best-effort */ }
+          return { name, arrived: 0, expect, reached: false, arrivedIds: [] }
+        })
       }
 
       return withFileLock(file, () => {
         let barrier: TeamBarrier = { name, expect, arrived: [], ts: new Date().toISOString() }
         if (existsSync(file)) {
           try { barrier = JSON.parse(readFileSync(file, 'utf-8')) as TeamBarrier } catch { /* corrupted — reset */ }
+          // `arrive` only bumps the arrival count; it must not overwrite the
+          // threshold the coordinator established. A peer arriving with the
+          // default expect=1 would otherwise collapse an N-peer barrier to 1.
+          if (args.action !== 'arrive') barrier.expect = expect
         }
         barrier.name = name
-        barrier.expect = expect
         if (args.action === 'arrive' && !barrier.arrived.includes(agent.session.id)) {
           barrier.arrived.push(agent.session.id)
         }
         barrier.ts = new Date().toISOString()
         writeFileSync(file, JSON.stringify(barrier))
-        const reached = barrier.arrived.length >= expect
-        return { name, arrived: barrier.arrived.length, expect, reached, arrivedIds: barrier.arrived }
+        const reached = barrier.arrived.length >= barrier.expect
+        return { name, arrived: barrier.arrived.length, expect: barrier.expect, reached, arrivedIds: barrier.arrived }
       })
     },
     presentCall: (args: any) => ({ card: 'generic' as const, title: `Barrier ${args.action}: ${args.name}`, kind: 'other' as const }),
