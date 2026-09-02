@@ -1,28 +1,23 @@
-// Real-browser delete-flow probe (真人级: real fill + Enter + real click on Delete).
+// Real-browser delete-flow probe (真人级: real click / real fill / real dialog).
 //
-// Follows the repo's own e2e patterns (apps/web/tests/*.e2e.ts): the live
-// composer is `textarea:enabled`, text enters via `.fill()`, and Enter sends.
-// The workspace is provisioned through the HTTP API as FIXTURE SETUP (the
-// native directory picker is absent in headless); the flow under test — type a
-// message, then delete the resulting session from the sidebar — is real UI.
+// Mirrors the repo's own e2e recipe (apps/web/tests/support.ts connectFreshWorkspace):
+// choose a workspace through the directory picker's path editor, type a message
+// into the composer, send it, then delete the session from the sidebar. Every
+// interaction is a real browser event (click / fill / Enter / native confirm).
 //
 // Run: node apps/web/tests/conductor/delete-flow.mjs
 
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { chromium } from 'playwright'
 
 const BASE = process.env.DSH_WEB_URL ?? 'http://127.0.0.1:8300'
 const MARKER = `cloud-detect ${Date.now()}`
 const log = (...a) => console.log('[e2e]', ...a)
 
-const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ type: 'client-request', rpcId: `setup-${method}`, method, payload }),
-}).then(r => r.json())
-
 const browser = await chromium.launch({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
-page.setDefaultTimeout(15000)
+page.setDefaultTimeout(20000)
 page.on('dialog', async (d) => { log('dialog', d.type(), d.message()); await d.accept() })
 const shot = (n) => page.screenshot({ path: `delete-flow-${n}.png` }).catch(() => {})
 
@@ -34,20 +29,23 @@ try {
   if (!booted) throw new Error('no __DSH_BOOT__')
   await page.waitForTimeout(2000)
 
-  // Fixture setup: provision a workspace over $HOME via the API.
-  if (/workspace|工作区/i.test((await page.locator('textarea:enabled').first().getAttribute('placeholder').catch(() => null)) ?? '')) {
-    const home = process.env.HOME || '/home/runner'
-    const ws = await rpc('workspace.create', { path: home })
-    log('workspace.create ok', ws?.result?.ok)
-    await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.waitForLoadState('networkidle').catch(() => {})
-    await page.waitForTimeout(2500)
-  }
+  // Choose a workspace through the directory picker (support.ts recipe).
+  const root = process.env.HOME || '/home/runner'
+  const wsPath = join(root, 'dsh-ws')
+  mkdirSync(wsPath, { recursive: true })
+  await page.getByRole('textbox', { name: 'Choose workspace' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
+  await dialog.waitFor({ timeout: 15000 })
+  await dialog.getByRole('button', { name: 'Edit path' }).click()
+  const pathInput = dialog.getByRole('textbox', { name: 'Edit path' })
+  await pathInput.fill(wsPath)
+  await pathInput.press('Enter')
+  await dialog.getByRole('button', { name: 'Open', exact: true }).click()
+  log('workspace chosen', wsPath)
 
-  // Live composer = the enabled textarea (repo e2e convention).
-  const composer = page.locator('textarea:enabled').first()
+  const composer = page.locator('textarea:enabled[placeholder="Describe what you want to build"]')
   await composer.waitFor({ timeout: 15000 })
-  log('placeholder', JSON.stringify(await composer.getAttribute('placeholder').catch(() => null)))
+  log('composer ready')
 
   // Real input: fill the composer and press Enter to send.
   await composer.fill(MARKER)
