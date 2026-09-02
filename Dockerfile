@@ -23,9 +23,10 @@ RUN pnpm install --frozen-lockfile \
 
 # The web shell is served by `dsh web` (boots the `web` profile), which injects
 # window.__DSH_BOOT__; do NOT run a bare Vite dev server as a stand-in.
-ENV DSH_PORT=3080 \
-  NODE_ENV=production
+# The listen port is `dsh web --port <n>` (default 8300); DSH_PORT is NOT read
+# by the web server, so pass `--port` explicitly when a fixed port is required.
+ENV NODE_ENV=production
 
-EXPOSE 3080
+EXPOSE 8300
 
 CMD ["pnpm", "dsh", "web"]

@@ -49,11 +49,15 @@ jobs:
       - name: Start web shell
         run: |
           nohup pnpm dsh web > dsh-web.log 2>&1 &
-          echo "PID=$!" >> "$GITHUB_ENV"
-          # Poll until the shell answers, then fail with the log on timeout.
+          # The shell prints its bound URL ("dsh web: http://127.0.0.1:PORT");
+          # parse it instead of hardcoding a port (default is 8300, configurable
+          # only via `dsh web --port`, NOT via DSH_PORT).
+          url=""
           for i in $(seq 1 90); do
-            if curl -fsS http://127.0.0.1:3080/ >/dev/null 2>&1; then
-              echo "web shell ready after ${i}s"
+            url="$(grep -oE 'dsh web: http://[^ ]+' dsh-web.log | head -n1 | sed 's/^dsh web: //')"
+            if [ -n "$url" ] && curl -fsS "$url/" >/dev/null 2>&1; then
+              echo "web shell ready at $url after ${i}s"
+              echo "DSH_WEB_URL=$url" >> "$GITHUB_ENV"
               exit 0
             fi
             sleep 1
@@ -64,7 +68,7 @@ jobs:
 
       - name: Smoke — HTTP 200 and boot injection
         run: |
-          html="$(curl -fsS http://127.0.0.1:3080/)"
+          html="$(curl -fsS "$DSH_WEB_URL/")"
           echo "$html" | grep -q '__DSH_BOOT__' && echo "boot injection present"
           echo "$html" | head -c 400
 

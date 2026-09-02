@@ -10,7 +10,7 @@
 
 import { chromium } from 'playwright'
 
-const BASE = process.env.DSH_WEB_URL ?? 'http://127.0.0.1:3080'
+const BASE = process.env.DSH_WEB_URL ?? 'http://127.0.0.1:8300'
 
 const fail = (step, error) => {
   console.error(`[FAIL] ${step}: ${error instanceof Error ? error.stack : error}`)
