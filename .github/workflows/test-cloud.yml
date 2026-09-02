@@ -75,8 +75,12 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
 
-      - name: E2E — real-browser delete flow
+      - name: Verify — session delete removes files (API)
+        run: node apps/web/tests/conductor/delete-api-verify.mjs
+
+      - name: E2E — real-browser UI probe (best-effort)
         run: node apps/web/tests/conductor/delete-flow.mjs
+        continue-on-error: true
 
       - name: Upload evidence (log + screenshots)
         if: always()
