@@ -5,8 +5,8 @@
 // never page.evaluate-driven dispatchEvent or direct RPC. This mirrors what a
 // human does: open the page, read it, click the row menu, pick Delete, confirm.
 //
-// Run: pnpm --filter @deepseek-ai/dsh-web-frontend exec node test/conductor/delete-flow.mjs
-//      (playwright resolves from the web-frontend workspace package)
+// Run: node apps/web/tests/conductor/delete-flow.mjs
+//      (lives under apps/web so `playwright` resolves from the web-frontend package)
 
 import { chromium } from 'playwright'
 
