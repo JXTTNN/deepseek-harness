@@ -78,10 +78,13 @@ jobs:
       - name: E2E — real-browser delete flow
         run: node apps/web/tests/conductor/delete-flow.mjs
 
-      - name: Upload server log on failure
-        if: failure()
+      - name: Upload evidence (log + screenshots)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dsh-web-log
-          path: dsh-web.log
+          name: cloud-detect-evidence
+          path: |
+            dsh-web.log
+            delete-flow-*.png
+          if-no-files-found: ignore
           retention-days: 7
