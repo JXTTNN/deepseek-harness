@@ -57,8 +57,15 @@ try {
   }
 
   // Real input + Enter (the session-creating action under test). The hero glow
-  // backdrop can cover the textarea, so force the real pointer click through it.
+  // backdrop can cover the textarea, so force the real pointer click through it,
+  // then fall back to programmatic focus if the click did not land on the textarea.
   await textarea.click({ force: true })
+  const active = await page.evaluate(() => document.activeElement?.tagName ?? null)
+  log('active element after click', active)
+  if (active !== 'TEXTAREA') {
+    await textarea.focus()
+    log('focused textarea programmatically (click did not land on it)')
+  }
   await page.keyboard.type(MARKER, { delay: 20 })
   log('textarea value after type', JSON.stringify(await textarea.inputValue().catch(() => null)))
   await page.keyboard.press('Enter')
