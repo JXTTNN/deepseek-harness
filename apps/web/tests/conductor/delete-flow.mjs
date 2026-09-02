@@ -59,15 +59,23 @@ try {
   // Real input + Enter (the session-creating action under test). The hero glow
   // backdrop can cover the textarea, so force the real pointer click through it,
   // then fall back to programmatic focus if the click did not land on the textarea.
-  await textarea.click({ force: true })
-  const active = await page.evaluate(() => document.activeElement?.tagName ?? null)
-  log('active element after click', active)
-  if (active !== 'TEXTAREA') {
-    await textarea.focus()
-    log('focused textarea programmatically (click did not land on it)')
+  // Diagnose what sits over the textarea center, then type through the input method.
+  const box = await textarea.boundingBox().catch(() => null)
+  if (box) {
+    const atPoint = await page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y)
+      return el ? { tag: el.tagName, cls: String((el).className || '').slice(0, 80) } : null
+    }, { x: box.x + box.width / 2, y: box.y + box.height / 2 })
+    log('elementFromPoint at textarea center', JSON.stringify(atPoint))
+    const style = await textarea.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { pointerEvents: s.pointerEvents, visibility: s.visibility, opacity: s.opacity, tabindex: el.getAttribute('tabindex'), readonly: el.getAttribute('readonly') }
+    })
+    log('textarea style', JSON.stringify(style))
   }
-  await page.keyboard.type(MARKER, { delay: 20 })
-  log('textarea value after type', JSON.stringify(await textarea.inputValue().catch(() => null)))
+  await textarea.focus()
+  await page.keyboard.insertText(MARKER)
+  log('value after insertText', JSON.stringify(await textarea.inputValue().catch(() => null)))
   await page.keyboard.press('Enter')
   log('typed+entered', MARKER)
 
