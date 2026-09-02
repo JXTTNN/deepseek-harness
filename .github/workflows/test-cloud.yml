@@ -1,0 +1,83 @@
+name: Cloud Detect
+
+# Cloud-native detection lane for the team-mode fork: build the workspace,
+# serve the real `dsh web` shell (which injects window.__DSH_BOOT__), assert the
+# shell is reachable over HTTP, and run a Playwright real-browser delete-flow
+# test. Runs on standard hosted runners so it works on any public fork.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+  # Map the repo's stored secrets onto the names the harness actually reads
+  # (packages/llm/llm-deepseek reads DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL).
+  DEEPSEEK_API_KEY: ${{ secrets.DSH_API_KEY }}
+  DEEPSEEK_BASE_URL: ${{ secrets.DSH_BASE_URL }}
+  # The web shell serves on 3080 by default.
+  DSH_PORT: '3080'
+
+jobs:
+  cloud-detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm run build
+
+      - name: Start web shell
+        run: |
+          nohup pnpm dsh web > dsh-web.log 2>&1 &
+          echo "PID=$!" >> "$GITHUB_ENV"
+          # Poll until the shell answers, then fail with the log on timeout.
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3080/ >/dev/null 2>&1; then
+              echo "web shell ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "web shell failed to start" >&2
+          cat dsh-web.log >&2
+          exit 1
+
+      - name: Smoke — HTTP 200 and boot injection
+        run: |
+          html="$(curl -fsS http://127.0.0.1:3080/)"
+          echo "$html" | grep -q '__DSH_BOOT__' && echo "boot injection present"
+          echo "$html" | head -c 400
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+
+      - name: E2E — real-browser delete flow
+        run: node test/conductor/delete-flow.mjs
+
+      - name: Upload server log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-web-log
+          path: dsh-web.log
+          retention-days: 7
