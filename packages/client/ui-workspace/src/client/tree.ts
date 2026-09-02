@@ -127,7 +127,7 @@ function sessionVisible(session: SessionSummary, current: SessionId | undefined,
  * and the renderer localizes its display label.
  */
 function sessionTitle(session: SessionSummary): string {
-  return session.blank ? 'New Session' : `${session.displayTitle} (${session.sessionId})`
+  return session.blank ? 'New Session' : `${session.displayTitle} (${session.id})`
 }
 
 /** Build one group without projecting session lineage into presentation. */
