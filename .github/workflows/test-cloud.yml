@@ -78,6 +78,9 @@ jobs:
       - name: Verify — session delete removes files (API)
         run: node apps/web/tests/conductor/delete-api-verify.mjs
 
+      - name: Verify — team peer discovery (presence)
+        run: node apps/web/tests/conductor/team-find-peer.mjs
+
       - name: E2E — real-browser UI probe (best-effort)
         run: node apps/web/tests/conductor/delete-flow.mjs
         continue-on-error: true
