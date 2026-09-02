@@ -1,9 +1,10 @@
-// Real-browser delete-flow probe (真人级: real click / real input / real dialog).
+// Real-browser delete-flow probe (真人级: real fill + Enter + real click on Delete).
 //
-// A fresh headless home has no workspace and the native directory picker is
-// unavailable, so the workspace is provisioned through the HTTP API as test
-// FIXTURE SETUP — the flow under test (type a message, then delete the session
-// from the sidebar) is exercised through real browser events only.
+// Follows the repo's own e2e patterns (apps/web/tests/*.e2e.ts): the live
+// composer is `textarea:enabled`, text enters via `.fill()`, and Enter sends.
+// The workspace is provisioned through the HTTP API as FIXTURE SETUP (the
+// native directory picker is absent in headless); the flow under test — type a
+// message, then delete the resulting session from the sidebar — is real UI.
 //
 // Run: node apps/web/tests/conductor/delete-flow.mjs
 
@@ -33,51 +34,26 @@ try {
   if (!booted) throw new Error('no __DSH_BOOT__')
   await page.waitForTimeout(2000)
 
-  const textarea = page.locator('textarea').first()
-  const ph = () => textarea.getAttribute('placeholder').catch(() => null)
-
-  // Fixture setup: provision a workspace over $HOME via the API (native picker
-  // is absent in headless), then reload so the composer leaves its no-workspace state.
-  if (/workspace|工作区/i.test((await ph()) ?? '')) {
+  // Fixture setup: provision a workspace over $HOME via the API.
+  if (/workspace|工作区/i.test((await page.locator('textarea:enabled').first().getAttribute('placeholder').catch(() => null)) ?? '')) {
     const home = process.env.HOME || '/home/runner'
     const ws = await rpc('workspace.create', { path: home })
-    log('workspace.create ->', JSON.stringify(ws).slice(0, 200))
+    log('workspace.create ok', ws?.result?.ok)
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.waitForLoadState('networkidle').catch(() => {})
     await page.waitForTimeout(2500)
-    log('placeholder after workspace', JSON.stringify(await ph()))
-    await shot('1-workspace')
   }
 
-  if (await textarea.isDisabled().catch(() => true)) {
-    log('composer still disabled after workspace provision; aborting')
-    await shot('2-disabled')
-    process.exitCode = 0
-    await browser.close(); process.exit(0)
-  }
+  // Live composer = the enabled textarea (repo e2e convention).
+  const composer = page.locator('textarea:enabled').first()
+  await composer.waitFor({ timeout: 15000 })
+  log('placeholder', JSON.stringify(await composer.getAttribute('placeholder').catch(() => null)))
 
-  // Real input + Enter (the session-creating action under test). The hero glow
-  // backdrop can cover the textarea, so force the real pointer click through it,
-  // then fall back to programmatic focus if the click did not land on the textarea.
-  // Diagnose what sits over the textarea center, then type through the input method.
-  const box = await textarea.boundingBox().catch(() => null)
-  if (box) {
-    const atPoint = await page.evaluate(({ x, y }) => {
-      const el = document.elementFromPoint(x, y)
-      return el ? { tag: el.tagName, cls: String((el).className || '').slice(0, 80) } : null
-    }, { x: box.x + box.width / 2, y: box.y + box.height / 2 })
-    log('elementFromPoint at textarea center', JSON.stringify(atPoint))
-    const style = await textarea.evaluate((el) => {
-      const s = getComputedStyle(el)
-      return { pointerEvents: s.pointerEvents, visibility: s.visibility, opacity: s.opacity, tabindex: el.getAttribute('tabindex'), readonly: el.getAttribute('readonly') }
-    })
-    log('textarea style', JSON.stringify(style))
-  }
-  await textarea.focus()
-  await page.keyboard.insertText(MARKER)
-  log('value after insertText', JSON.stringify(await textarea.inputValue().catch(() => null)))
-  await page.keyboard.press('Enter')
-  log('typed+entered', MARKER)
+  // Real input: fill the composer and press Enter to send.
+  await composer.fill(MARKER)
+  log('value after fill', JSON.stringify(await composer.inputValue()))
+  await composer.press('Enter')
+  log('sent', MARKER)
 
   const markerText = page.getByText(MARKER).first()
   let created = false
@@ -86,7 +62,7 @@ try {
     await page.waitForTimeout(1000)
   }
   log('message visible', created)
-  await shot('3-created')
+  await shot('1-created')
 
   // Delete via the sidebar row menu (real hover + click + native confirm).
   const deleteItem = page.getByRole('menuitem', { name: /delete|删除/i }).first()
@@ -106,7 +82,7 @@ try {
 
   if (!menuOpen) {
     log('delete menu not reachable; refinement needed')
-    await shot('4-nomenu')
+    await shot('2-nomenu')
     process.exitCode = 0
     await browser.close(); process.exit(0)
   }
@@ -114,7 +90,7 @@ try {
   await deleteItem.click()
   await page.waitForTimeout(1200)
   log('delete clicked; marker still visible', await markerText.isVisible().catch(() => false))
-  await shot('5-deleted')
+  await shot('3-deleted')
 } catch (e) {
   console.error('[FAIL]', e instanceof Error ? e.stack : e)
   await shot('failure')
