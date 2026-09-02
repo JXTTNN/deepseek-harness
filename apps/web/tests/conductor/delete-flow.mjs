@@ -35,8 +35,29 @@ try {
   mkdirSync(wsPath, { recursive: true })
   const trigger = page.getByRole('textbox', { name: 'Choose workspace' })
   log('workspace trigger count', await trigger.count())
-  await trigger.click()
+  log('trigger visible', await trigger.isVisible().catch(() => false))
+  const tb = await trigger.boundingBox().catch(() => null)
+  if (tb) {
+    const atPoint = await page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y)
+      return el ? { tag: el.tagName, cls: String((el).className || '').slice(0, 70) } : null
+    }, { x: tb.x + tb.width / 2, y: tb.y + tb.height / 2 })
+    log('elementFromPoint at trigger', JSON.stringify(atPoint))
+    const style = await trigger.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { pe: s.pointerEvents, vis: s.visibility, op: s.opacity, disp: s.display }
+    })
+    log('trigger style', JSON.stringify(style))
+  }
+  try {
+    await trigger.click()
+    log('trigger click ok')
+  } catch (e) {
+    log('trigger click failed, forcing:', String(e).slice(0, 80))
+    await trigger.click({ force: true })
+  }
   const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
+  log('dialog count after click', await dialog.count())
   await dialog.waitFor({ timeout: 15000 })
   await dialog.getByRole('button', { name: 'Edit path' }).click()
   const pathInput = dialog.getByRole('textbox', { name: 'Edit path' })
