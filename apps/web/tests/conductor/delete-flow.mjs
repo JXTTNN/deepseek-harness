@@ -16,7 +16,7 @@ const MARKER = `cloud-detect ${Date.now()}`
 const log = (...a) => console.log('[e2e]', ...a)
 
 const browser = await chromium.launch({ headless: true })
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+const page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: 'en-US' })
 page.setDefaultTimeout(20000)
 page.on('dialog', async (d) => { log('dialog', d.type(), d.message()); await d.accept() })
 const shot = (n) => page.screenshot({ path: `delete-flow-${n}.png` }).catch(() => {})
@@ -33,7 +33,9 @@ try {
   const root = process.env.HOME || '/home/runner'
   const wsPath = join(root, 'dsh-ws')
   mkdirSync(wsPath, { recursive: true })
-  await page.getByRole('textbox', { name: 'Choose workspace' }).click()
+  const trigger = page.getByRole('textbox', { name: 'Choose workspace' })
+  log('workspace trigger count', await trigger.count())
+  await trigger.click()
   const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
   await dialog.waitFor({ timeout: 15000 })
   await dialog.getByRole('button', { name: 'Edit path' }).click()
