@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
+import { homedir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -1707,8 +1708,11 @@ export function apply(ctx: Context): void {
 
       const results: string[] = []
 
-      // 1. Remove session files from DSH_HOME/sessions/ (scan for correct directory)
-      const dshHome = process.env.DSH_HOME
+      // 1. Remove session files from DSH_HOME/sessions/ (scan for correct directory).
+      //    The harness resolves its home through resolveDshHome() (`$DSH_HOME` then
+      //    `~/.dsh`), so mirror that fallback here: a bare `process.env.DSH_HOME`
+      //    read would skip file deletion entirely on a default (unset) launch.
+      const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
       if (dshHome) {
         const sessionsRoot = join(dshHome, 'sessions')
         if (existsSync(sessionsRoot)) {

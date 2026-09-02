@@ -2869,42 +2869,22 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         try {
           // 1. Archive to hide from UI
           await ctx.workspaceRegistry.archiveSession(sessionId)
-          // 2. Delete session files from disk. The canonical layout is
-          //    sessions/<projectDir>/<sessionId>/session.jsonl[.zstd]: the
-          //    directory name IS the session id, so match on it directly.
-          //    (The previous code treated ANY directory containing a zstd log
-          //    as the target, which deleted an arbitrary sibling session.)
-          const { rmSync, existsSync, readdirSync, readFileSync, unlinkSync } = await import('node:fs')
-          const { join } = await import('node:path')
-          const dshHome = process.env.DSH_HOME
-          if (dshHome) {
-            const sessionsRoot = join(dshHome, 'sessions')
-            if (existsSync(sessionsRoot)) {
-              for (const projectDir of readdirSync(sessionsRoot)) {
-                const projectPath = join(sessionsRoot, projectDir)
-                try {
-                  if (!existsSync(projectPath)) continue
-                  const directPath = join(projectPath, sessionId)
-                  if (existsSync(directPath)) {
-                    rmSync(directPath, { recursive: true, force: true })
-                    break
-                  }
-                  // Legacy fallback for a directory whose name differs from the
-                  // id: verify by reading the uncompressed header only.
-                  for (const entry of readdirSync(projectPath)) {
-                    const sessionPath = join(projectPath, entry)
-                    const jsonlPath = join(sessionPath, 'session.jsonl')
-                    if (!existsSync(jsonlPath)) continue
-                    try {
-                      const firstLine = readFileSync(jsonlPath, 'utf-8').split('\n')[0] ?? ''
-                      if (JSON.parse(firstLine).id === sessionId) {
-                        rmSync(sessionPath, { recursive: true, force: true })
-                        break
-                      }
-                    } catch { /* skip unparsable */ }
-                  }
-                } catch { continue }
-              }
+          // 2. Remove the session's backend-owned artifact through the
+          //    persistence backend's own locator, then delete its directory.
+          //    The locator owns the id encoding and compression suffix, so this
+          //    never re-derives the on-disk layout (or the DSH_HOME default)
+          //    by hand. A backend without per-session artifacts (e.g. SQLite)
+          //    reports no location and has nothing to unlink here.
+          const { rmSync, existsSync, unlinkSync } = await import('node:fs')
+          const { join, dirname } = await import('node:path')
+          const persistence = ctx.get('sessionPersistence')
+          const header = persistence === undefined
+            ? undefined
+            : (await persistence.list()).find(candidate => candidate.id === sessionId)
+          if (persistence !== undefined && header !== undefined) {
+            const location = persistence.locate(header)
+            if (location !== undefined) {
+              rmSync(dirname(location.path), { recursive: true, force: true })
             }
           }
           // 3. Clean up team communication files. The session may no longer be
