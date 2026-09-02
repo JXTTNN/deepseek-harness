@@ -56,9 +56,11 @@ try {
     await browser.close(); process.exit(0)
   }
 
-  // Real input + Enter (the session-creating action under test).
-  await textarea.click()
+  // Real input + Enter (the session-creating action under test). The hero glow
+  // backdrop can cover the textarea, so force the real pointer click through it.
+  await textarea.click({ force: true })
   await page.keyboard.type(MARKER, { delay: 20 })
+  log('textarea value after type', JSON.stringify(await textarea.inputValue().catch(() => null)))
   await page.keyboard.press('Enter')
   log('typed+entered', MARKER)
 
