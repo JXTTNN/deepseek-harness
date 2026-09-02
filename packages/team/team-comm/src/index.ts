@@ -39,9 +39,6 @@ const PRESENCE_STALE_MS = 60 * 60_000 // 60 minutes — long enough for a peer t
 /** A `.lock` file older than this (ms) is treated as orphaned and broken. */
 const FILE_LOCK_STALE_MS = 10_000
 
-/** How long to wait for a peer's lock before force-breaking it. */
-const FILE_LOCK_TIMEOUT_MS = 5_000
-
 /** Keep the most recent messages in an inbox so files stay bounded and scans stay fast. */
 const MAX_INBOX_MESSAGES = 500
 
@@ -132,8 +129,7 @@ function withFileLock<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
     // call created `.team/`) does not fail with ENOENT.
     mkdirSync(dirname(file), { recursive: true })
     const lockPath = `${file}.lock`
-    const deadline = Date.now() + FILE_LOCK_TIMEOUT_MS
-    // Acquire the lock, breaking it only when it is provably stale.
+    // Acquire the lock, breaking it ONLY when it is provably stale (orphaned).
     for (;;) {
       try {
         writeFileSync(lockPath, JSON.stringify({ pid: process.pid, ts: Date.now() }), { flag: 'wx' })
@@ -144,12 +140,14 @@ function withFileLock<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
         // `wx` open races an existing or just-deleted lock file; treat every
         // transient-contention code as "lock held, retry" rather than crashing.
         if (code !== 'EEXIST' && code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES' && code !== 'ENOTEMPTY') throw err
-        // Another process holds it. Break it only if it is orphaned.
+        // Another process holds it. Break it only if it is orphaned. A wall-clock
+        // deadline must NOT break a live lock: a slow-but-alive holder would then
+        // be pre-empted mid read-modify-write and silently lose data.
         let stale = false
         try {
           stale = Date.now() - statSync(lockPath).mtimeMs > FILE_LOCK_STALE_MS
         } catch { /* lock vanished; retry acquisition */ }
-        if (stale || Date.now() > deadline) {
+        if (stale) {
           try { rmSync(lockPath, { force: true }) } catch { /* lost a race; loop again */ }
           continue
         }
