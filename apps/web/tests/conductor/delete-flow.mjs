@@ -48,10 +48,10 @@ try {
   console.log(`[recon] body text: ${bodyText}`)
   await page.screenshot({ path: 'delete-flow-1-boot.png' }).catch(() => {})
 
-  if (textareaCount === 0 || disabled) {
-    // Fresh home with no workspace: the composer is disabled until a workspace
-    // exists. Record it; the delete flow needs a live session to delete.
-    console.log('[e2e] composer disabled (no workspace yet); cannot create a session via typing')
+  if (textareaCount === 0 || disabled || /workspace/i.test(placeholder ?? '')) {
+    // Fresh home with no workspace: the composer waits for a workspace before
+    // it accepts input. Record it; the delete flow needs a live session.
+    console.log(`[e2e] no workspace yet (disabled=${disabled} placeholder=${JSON.stringify(placeholder)}); cannot type a session until a workspace is chosen`)
     process.exitCode = 0
     await browser.close()
     process.exit(0)
