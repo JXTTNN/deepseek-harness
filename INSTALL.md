@@ -115,12 +115,7 @@ Team 模式让多个**独立会话**在共享工作区（默认 `.team/` 目录�
 - **`team_barrier`** — 多 peer 相位同步。
 - **`team_status`** — 一键团队健康快照。
 
-启用示例：使用 Team 模式的 Agent 预设
-
-```sh
-pnpm dsh --preset team web
-# 或直接以团队预设构建/启动你的 agent
-```
+启用方式：Team 模式是**会话级 Agent 预设**（非启动参数）。启动 `pnpm dsh web` 后，在 UI 的预设选择器里选「Team 模式」；或通过 API `session.create` 传 `agentPreset: "team"` 创建团队会话。CLI 无 `--preset` 标志。
 
 > 预设文件：`apps/cli/config/agent-presets/team/preset.yml` 与 `agent.cordis.yml`。
 
@@ -154,7 +149,7 @@ Team 会话的运行时数据（presence、inbox、tasks、memory、review）全
 | `pnpm.ps1` 无法加载 | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 后重开终端 |
 | `pnpm install` 网络慢/失败 | 换源 `pnpm config set registry https://registry.npmmirror.com` |
 | 构建报 Node 版本不符 | 升级/切换 Node 到 `v24`（如用 `nvm use 24`） |
-| 端口被占用 | `pnpm dsh web` 前设 `DSH_PORT` 环境变量换端口 |
+| 端口被占用 | 用 `pnpm dsh web --port <端口>` 换端口（web server 读取 `--port` 标志，默认 8300；`DSH_PORT` 环境变量不生效） |
 | 想恢复成上游原版 | 与 `deepseek-ai/deepseek-harness` 官方代码对比即可 |
 
 ---
