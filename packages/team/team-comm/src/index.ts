@@ -934,17 +934,18 @@ export function apply(ctx: Context): void {
       // Append under the cross-process file lock so concurrent peers writing to
       // the shared think.log cannot interleave and drop one another's entries.
       return withFileLock(logFile, () => {
-        // Read existing log, append new entry, rotate if over limit.
-        let existing = existsSync(logFile) ? readFileSync(logFile, 'utf-8') : ''
-        const lines = existing === '' ? [] : existing.trimEnd().split('\n')
-        lines.push(entry)
-        // Rotate: keep only the last MAX_THINK_LOG_LINES entries.
-        if (lines.length > MAX_THINK_LOG_LINES) {
-          existing = lines.slice(-MAX_THINK_LOG_LINES).join('\n') + '\n'
-        } else {
-          existing = lines.join('\n') + '\n'
-        }
-        writeFileSync(logFile, existing)
+        // O(1) append on the hot path; only a size-triggered amortised trim
+        // rereads the log (mirrors lockedAppend), so think() stays fast on a
+        // long-running team instead of reading + rewriting the whole log per call.
+        writeFileSync(logFile, entry + '\n', { flag: 'a' })
+        try {
+          if (statSync(logFile).size > MAX_APPEND_FILE_BYTES) {
+            const lines = readFileSync(logFile, 'utf-8').trimEnd().split('\n')
+            if (lines.length > MAX_THINK_LOG_LINES) {
+              writeFileSync(logFile, lines.slice(-MAX_THINK_LOG_LINES).join('\n') + '\n')
+            }
+          }
+        } catch { /* best-effort trim */ }
         if (pass === 1) {
           return {
             recorded: true,
