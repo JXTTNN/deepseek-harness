@@ -131,12 +131,12 @@ Team 会话的运行时数据（presence、inbox、tasks、memory、review）全
 
 | 缺陷 | 修复 |
 |------|------|
-| 跨进程写互相覆盖 → 静默丢消息 | 新增 `withFileLock()`：`.lock` 原子排他文件锁 + 陈旧锁清理 + 超时，叠加进程内锁 |
+| 跨进程写互相覆盖 → 静默丢消息 | 新增 `withFileLock()`：`.lock` 原子排他文件锁 + 陈旧锁清理（仅当锁过期为孤儿锁时打破，绝不墙钟超时强杀活锁），叠加进程内锁 |
 | `think.log` 并发无锁 → 丢条目 | 接入同一把 `withFileLock` |
 | `writeJsonl` 在 Windows 上非健壮（rename 可能 `EPERM/EBUSY/EEXIST`） | 新增 `fsync` + 5 次重试 + 兜底直写 + 父目录 `mkdir` |
 | `team_send` 输出 schema 与 `execute` 返回值不一致 | 补齐 `duplicate`/`error` 字段 |
 | `session_delete` 可误删自身 | 增加自删拒绝守卫 |
-| 空转 peer 过早被判离线 | `PRESENCE_STALE_MS` 从 5 分钟放宽到 15 分钟 |
+| 空转 peer 过早被判离线 | `PRESENCE_STALE_MS` 放宽到 60 分钟（先后从 5→15→60 分钟，当前为 60 分钟） |
 
 详见 [packages/team/team-comm/REVIEW.md](packages/team/team-comm/REVIEW.md)。
 
