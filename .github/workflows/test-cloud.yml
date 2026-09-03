@@ -87,6 +87,9 @@ jobs:
       - name: Verify — team agent invokes team tools (LLM end-to-end)
         run: node apps/web/tests/conductor/team-collab.mjs
 
+      - name: Verify — auto model discovery
+        run: node apps/web/tests/conductor/discover-models.mjs
+
       - name: E2E — real-browser UI probe (best-effort)
         run: node apps/web/tests/conductor/delete-flow.mjs
         continue-on-error: true
