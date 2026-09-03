@@ -227,7 +227,14 @@ async function deliverMessage(
   if (replyTo !== undefined) record.replyTo = replyTo
   const inboxFile = join(inboxDir, `${safeTarget}.jsonl`)
   await withFileLock(inboxFile, () => {
-    writeFileSync(inboxFile, JSON.stringify(record) + '\n', { flag: 'a' })
+    // Retry a transient append failure (Windows reader-share EPERM/EBUSY) so a
+    // brief file-open race cannot silently drop a peer message.
+    let lastError: unknown
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { writeFileSync(inboxFile, JSON.stringify(record) + '\n', { flag: 'a' }); return }
+      catch (error) { lastError = error }
+    }
+    throw lastError
   })
   return msgId
 }
