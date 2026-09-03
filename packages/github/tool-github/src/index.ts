@@ -9,6 +9,8 @@
  * @module @deepseek-ai/dsh-tool-github
  */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -24,8 +26,6 @@ function token(): string {
   if (tok) return tok
   // Try reading from DSH credentials
   try {
-    const { readFileSync } = require('node:fs') as typeof import('node:fs')
-    const { join } = require('node:path') as typeof import('node:path')
     const home = process.env.DSH_HOME ?? join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.dsh')
     const raw = readFileSync(join(home, '.credentials.yaml'), 'utf-8')
     const m = raw.match(/GITHUB_TOKEN:\s*(\S+)/)
@@ -126,7 +126,11 @@ export function apply(ctx: Context): void {
     },
     execute: async (args) => {
       const ref = args.ref ? `?ref=${encodeURIComponent(args.ref)}` : ''
-      const data = await gh(`/repos/${args.owner}/${args.repo}/contents/${encodeURIComponent(args.path)}${ref}`)
+      // Encode each path segment, NOT the whole path: encodeURIComponent on the
+      // full path would turn "src/index.ts" into "src%2Findex.ts" and the API
+      // would read a file literally named "src/index.ts" instead of the nested path.
+      const pathSegs = String(args.path).split('/').map(encodeURIComponent).join('/')
+      const data = await gh(`/repos/${args.owner}/${args.repo}/contents/${pathSegs}${ref}`)
       const content = Buffer.from(data.content, 'base64').toString('utf-8')
       return { content, path: args.path, size: data.size }
     },
