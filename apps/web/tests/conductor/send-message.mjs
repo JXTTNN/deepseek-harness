@@ -41,12 +41,19 @@ try {
     process.exit(0)
   }
   await composer.click().catch(() => {})
-  await composer.fill('ui-send-probe').catch(async () => { await composer.type('ui-send-probe') })
+  await page.keyboard.type('ui-send-probe', { delay: 20 })
+  await page.waitForTimeout(500)
   const sendBtn = page.locator('button[aria-label="Send message"], button[aria-label="发送"]').first()
   const hasSend = await sendBtn.count() > 0
-  log('send button found', hasSend)
-  if (hasSend) await sendBtn.click()
-  await page.waitForTimeout(6000)
+  const disabled = await sendBtn.isDisabled().catch(() => true)
+  log('send button found', hasSend, 'disabled', disabled)
+  if (hasSend && !disabled) {
+    await sendBtn.click()
+    await page.waitForTimeout(6000)
+  } else {
+    log('SKIP: send button disabled (empty composer or workspace not chosen)')
+    process.exit(0)
+  }
 
   const hist = await rpc('session.history', { sessionId: SID })
   const events = hist?.result?.value?.events ?? []
