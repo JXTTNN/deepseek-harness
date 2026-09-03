@@ -1,6 +1,6 @@
-// Verify the auto model-discovery wiring: llm.discoverModels must return the
-// remote /models list (more than the hard-coded two-model catalog) when a key
-// is configured — proving "auto-explore available models" works end to end.
+// Verify auto model discovery: llm.models (the model catalog the selection UI
+// reads) must now include remote models beyond the hard-coded two, proving the
+// listModels auto-explore fetched the real /models list.
 //
 // Run: node apps/web/tests/conductor/discover-models.mjs
 
@@ -14,17 +14,17 @@ const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
 }).then(r => r.json())
 
 try {
-  const r = await rpc('llm.discoverModels', { settingsNs: 'llm-deepseek', provider: 'deepseek-official' })
-  log('raw', JSON.stringify(r).slice(0, 400))
-  const value = r?.result?.value
-  const models = Array.isArray(value) ? value : (value?.models ?? value?.items ?? [])
-  const ids = models.map((m) => (typeof m === 'string' ? m : m?.id)).filter(Boolean)
-  log('model ids', JSON.stringify(ids))
-  if (ids.length <= 2) {
-    log('FAIL: only the static two-model catalog returned; auto-discovery did not run')
+  const r = await rpc('llm.models', {})
+  log('raw', JSON.stringify(r).slice(0, 600))
+  const text = JSON.stringify(r)
+  // tokenrhythm-only model ids the hard-coded catalog does not list.
+  const hasRemote = /qwen3\.7-flash|glm-5\.3-flash|minimax-m2\.5|deepseek-v4-flash-0731/.test(text)
+  log('contains remote model', hasRemote)
+  if (!hasRemote) {
+    log('FAIL: llm.models did not surface any remote model (auto-discovery not applied)')
     process.exit(1)
   }
-  log(`PASS: auto-discovered ${ids.length} models`)
+  log('PASS: auto-discovery surfaced remote models')
 } catch (e) {
   console.error('[discover][FAIL]', e instanceof Error ? e.stack : e)
   process.exit(1)
