@@ -1320,6 +1320,15 @@ export function apply(ctx: Context): void {
               throw new Error(`team_task claim: task "${id}" is already assigned to ${task.assignee}`)
             }
             if (task.status === 'done') throw new Error(`team_task claim: task "${id}" is already done`)
+            if (Array.isArray(task.deps) && task.deps.length > 0) {
+              const pending = task.deps.filter((depId) => {
+                const dep = tasks.find(t => t.id === depId)
+                return dep === undefined || dep.status !== 'done'
+              })
+              if (pending.length > 0) {
+                throw new Error(`team_task claim: blocked by ${pending.length} incomplete dependency task(s): ${pending.map(d => d.slice(0, 8)).join(', ')}`)
+              }
+            }
             task.assignee = agent.session.id
             task.status = 'in_progress'
             task.updatedTs = now()
