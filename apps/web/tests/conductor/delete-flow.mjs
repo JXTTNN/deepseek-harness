@@ -88,6 +88,15 @@ try {
       btn?.click()
     })
   }
+  await page.waitForTimeout(500)
+  // A destructive delete raises a confirmation dialog; confirm it. The dialog's
+  // confirm button is the last "Delete"/"删除" button (the row button is earlier).
+  const confirmBtn = page.locator('button:has-text("Delete"), button:has-text("删除")').last()
+  if (await confirmBtn.isVisible().catch(() => false)) {
+    await confirmBtn.click()
+  } else {
+    await page.keyboard.press('Enter').catch(() => {})
+  }
   await page.waitForTimeout(1500)
   await shot('2-deleted')
 
