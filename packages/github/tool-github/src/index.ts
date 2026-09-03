@@ -131,6 +131,12 @@ export function apply(ctx: Context): void {
       // would read a file literally named "src/index.ts" instead of the nested path.
       const pathSegs = String(args.path).split('/').map(encodeURIComponent).join('/')
       const data = await gh(`/repos/${args.owner}/${args.repo}/contents/${pathSegs}${ref}`)
+      // Files over 1 MB (and binary files) come back with `content: null`; the
+      // contents API defers them to the raw endpoint. Refuse with a clear error
+      // instead of letting Buffer.from(null) throw.
+      if (data.content === null || data.content === undefined) {
+        throw new Error(`github_file_read: "${args.path}" is too large or binary; use the raw download endpoint instead`)
+      }
       const content = Buffer.from(data.content, 'base64').toString('utf-8')
       return { content, path: args.path, size: data.size }
     },
