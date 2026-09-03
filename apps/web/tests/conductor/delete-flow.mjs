@@ -25,8 +25,13 @@ const shot = (n) => page.screenshot({ path: `delete-flow-${n}.png` }).catch(() =
 
 try {
   const home = process.env.HOME || '/home/runner'
-  await rpc('workspace.create', { path: home })
-  const created = await rpc('session.create', { sessionId: SID, cwd: home })
+  const ws = await rpc('workspace.create', { path: home })
+  const workspaceId = ws?.result?.value?.workspace?.workspaceId ?? ws?.result?.value?.workspaceId ?? ws?.result?.workspaceId
+  log('workspaceId', workspaceId)
+  // Attach via workspaceId (not bare cwd): a bare-cwd session lands in the
+  // collapsed "Ungrouped" group, whose rows are not rendered, so its Delete
+  // button never appears. Attaching puts the row in the expanded workspace.
+  const created = await rpc('session.create', { sessionId: SID, workspaceId })
   log('session.create ok', created?.result?.ok)
   if (!created?.result?.ok) { process.exit(1) }
   // A session with no events is "blank": Rows.tsx hides the row verbs (Delete)
