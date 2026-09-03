@@ -1106,6 +1106,13 @@ export function apply(ctx: Context): void {
     async execute(args, exec) {
       const agent = exec.agent
       if (!agent) throw new Error('team_broadcast: no agent context')
+      // Reject an oversized message up front (matching team_send's {ok:false}
+      // style) instead of letting deliverMessage throw mid-loop after some
+      // peers already received it — a partial fan-out is worse than a refusal.
+      const msgBytes = Buffer.byteLength(args.message, 'utf-8')
+      if (msgBytes > MAX_MESSAGE_BYTES) {
+        return { broadcastId: '', sentTo: 0, targets: [], note: `Message too large: ${msgBytes} bytes (max ${MAX_MESSAGE_BYTES})` }
+      }
       const peers = peerIds(agent)
       // No peers: report the empty fan-out instead of writing a pointless
       // broadcast record that team_collect/team_status would then carry forever.
