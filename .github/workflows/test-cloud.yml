@@ -84,6 +84,9 @@ jobs:
       - name: Verify — cross-process lock (no data loss)
         run: node apps/web/tests/conductor/lock-test.mjs
 
+      - name: Verify — team agent invokes team tools (LLM end-to-end)
+        run: node apps/web/tests/conductor/team-collab.mjs
+
       - name: E2E — real-browser UI probe (best-effort)
         run: node apps/web/tests/conductor/delete-flow.mjs
         continue-on-error: true
