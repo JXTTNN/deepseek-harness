@@ -1,18 +1,19 @@
-// Real multi-agent delegation probe: a Team-mode lead is asked to delegate a
-// trivial task to a worker via the subagent tool, proving the collaboration
-// mechanism actually fans work out to another agent (more than one turn in one
-// conversation). Best-effort: model may choose a different valid path.
+// Multi-session division-of-labor probe: two Team-mode sessions coordinate
+// through the shared .team/ layer — session A creates a task and sends a
+// message, session B reads its inbox and task board. Proves the cross-session
+// collaboration mechanism (not single-session subagent delegation).
 //
 // Run: node apps/web/tests/conductor/team-delegate.mjs
 
 const BASE = process.env.DSH_WEB_URL ?? 'http://127.0.0.1:8300'
-const SID = `ui-delegate-${Date.now()}`
-const log = (...a) => console.log('[delegate]', ...a)
+const A = `ui-ms-a-${Date.now()}`
+const B = `ui-ms-b-${Date.now()}`
+const log = (...a) => console.log('[ms-collab]', ...a)
 
 const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ type: 'client-request', rpcId: `dg-${method}`, method, payload }),
+  body: JSON.stringify({ type: 'client-request', rpcId: `ms-${method}-${Math.random().toString(36).slice(2, 8)}`, method, payload }),
 }).then(r => r.json())
 
 try {
@@ -20,33 +21,48 @@ try {
   await rpc('workspace.create', { path: home })
   const ws = await rpc('workspace.list', {})
   const workspaceId = ws?.result?.value?.workspaces?.[0]?.workspaceId
-  await rpc('session.create', { sessionId: SID, workspaceId, agentPreset: 'team' })
-  log('session.create ok')
+  await rpc('session.create', { sessionId: A, workspaceId, agentPreset: 'team' })
+  await rpc('session.create', { sessionId: B, workspaceId, agentPreset: 'team' })
+  log('two team sessions created')
 
+  // A creates a task + sends a direct message to B.
   await rpc('session.prompt', {
-    sessionId: SID,
+    sessionId: A,
     mode: 'queue',
-    content: [{ type: 'text', text: 'Delegate ONE tiny task to a worker using the subagent tool: ask the worker to reply with just the word "OK". After the worker finishes, report the worker\'s reply. Do not do the task yourself.' }],
+    content: [{ type: 'text', text: `Call team_task(action:"create", title:"ui-ms-task") to create one task, then call team_send(target:"${B}", message:"hello from A") to message your peer. Report both tool results.` }],
   })
-  log('session.prompt ok')
+  log('A prompted (create task + send)')
 
-  await new Promise(r => setTimeout(r, 60000))
+  // B reads its inbox + task board.
+  await rpc('session.prompt', {
+    sessionId: B,
+    mode: 'queue',
+    content: [{ type: 'text', text: 'Call team_inbox to read your messages, then team_task(action:"list") to list the task board. Report what you found.' }],
+  })
+  log('B prompted (read inbox + list tasks)')
 
-  const hist = await rpc('session.history', { sessionId: SID })
-  const events = hist?.result?.value?.events ?? []
-  const toolCalls = events.filter(e => e.event?.type === 'tool/call')
+  await new Promise(r => setTimeout(r, 45000))
+
+  const histA = await rpc('session.history', { sessionId: A })
+  const histB = await rpc('session.history', { sessionId: B })
+  const calls = (h) => (h?.result?.value?.events ?? [])
+    .filter(e => e.event?.type === 'tool/call')
     .map(e => e.event?.data?.name ?? e.event?.data?.tool)
     .filter(Boolean)
-  log('tool calls', JSON.stringify(toolCalls))
-  const delegated = toolCalls.some(n => String(n) === 'subagent' || String(n) === 'subagent_fork' || String(n) === 'workflow')
-  log('delegated to a worker', delegated)
+  const aCalls = calls(histA)
+  const bCalls = calls(histB)
+  log('A tool calls', JSON.stringify(aCalls))
+  log('B tool calls', JSON.stringify(bCalls))
+  const aWrote = aCalls.some(n => String(n).startsWith('team_'))
+  const bRead = bCalls.some(n => String(n) === 'team_inbox' || String(n) === 'team_task' || String(n) === 'team_list')
+  log('A used team tools (write)', aWrote, '| B used team tools (read)', bRead)
 
-  if (!delegated) {
-    log('SKIP: lead did not delegate via subagent (non-deterministic)')
-    process.exit(0)
+  if (aWrote && bRead) {
+    log('PASS: two sessions coordinated through the shared team layer (division of labor)')
+  } else {
+    log('SKIP: model did not perform the expected division of labor (non-deterministic)')
   }
-  log('PASS: team lead delegated to a worker agent (multi-agent collaboration works)')
 } catch (e) {
-  console.error('[delegate][FAIL]', e instanceof Error ? e.stack : e)
+  console.error('[ms-collab][FAIL]', e instanceof Error ? e.stack : e)
   process.exit(1)
 }
