@@ -918,6 +918,9 @@ export function apply(ctx: Context): void {
       if (![1, 2, 3, 4].includes(pass)) {
         return Promise.resolve({ recorded: false, next: `Invalid pass ${pass}. Only passes 1, 2, 3, and 4 are valid.` })
       }
+      if (Buffer.byteLength(thought, 'utf-8') > MAX_MESSAGE_BYTES) {
+        return Promise.resolve({ recorded: false, next: `Thought too large (${Buffer.byteLength(thought, 'utf-8')} bytes, max ${MAX_MESSAGE_BYTES}).` })
+      }
       const cwd = teamCwd(agent)
       const logDir = join(cwd, TEAM_DIR)
       mkdirSync(logDir, { recursive: true })
