@@ -14,7 +14,7 @@ const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
 }).then(r => r.json())
 
 try {
-  const r = await rpc('llm.discoverModels', { provider: 'deepseek-official' })
+  const r = await rpc('llm.discoverModels', { settingsNs: 'llm-deepseek', provider: 'deepseek-official' })
   log('raw', JSON.stringify(r).slice(0, 400))
   const value = r?.result?.value
   const models = Array.isArray(value) ? value : (value?.models ?? value?.items ?? [])
