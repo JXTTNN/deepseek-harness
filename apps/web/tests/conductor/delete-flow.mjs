@@ -29,6 +29,10 @@ try {
   const created = await rpc('session.create', { sessionId: SID, cwd: home })
   log('session.create ok', created?.result?.ok)
   if (!created?.result?.ok) { process.exit(1) }
+  // A session with no events is "blank": Rows.tsx hides the row verbs (Delete)
+  // until the first prompt. Send one so the row becomes non-blank.
+  const prompted = await rpc('session.prompt', { sessionId: SID, mode: 'steer', content: [{ type: 'text', text: 'ping' }] })
+  log('session.prompt ok', prompted?.result?.ok)
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForLoadState('networkidle').catch(() => {})
