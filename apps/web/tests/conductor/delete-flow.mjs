@@ -21,6 +21,7 @@ const browser = await chromium.launch({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: 'en-US' })
 page.setDefaultTimeout(20000)
 page.on('dialog', async (d) => { log('dialog', d.type(), d.message()); await d.accept() })
+page.on('console', (m) => { if (m.type() === 'warning' || m.type() === 'error') log('browser', m.type(), m.text().slice(0, 200)) })
 const shot = (n) => page.screenshot({ path: `delete-flow-${n}.png` }).catch(() => {})
 
 try {
@@ -97,7 +98,7 @@ try {
   } else {
     await page.keyboard.press('Enter').catch(() => {})
   }
-  await page.waitForTimeout(1500)
+  await page.waitForTimeout(4000)
   await shot('2-deleted')
 
   const list = await rpc('session.list', {})
