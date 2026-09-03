@@ -1107,6 +1107,11 @@ export function apply(ctx: Context): void {
       const agent = exec.agent
       if (!agent) throw new Error('team_broadcast: no agent context')
       const peers = peerIds(agent)
+      // No peers: report the empty fan-out instead of writing a pointless
+      // broadcast record that team_collect/team_status would then carry forever.
+      if (peers.length === 0) {
+        return { broadcastId: '', sentTo: 0, targets: [], note: 'No live peers to broadcast to.' }
+      }
       const broadcastId = randomUUID()
       const targets: { id: string; msgId: string }[] = []
       for (const id of peers) {
