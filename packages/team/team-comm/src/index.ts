@@ -1483,6 +1483,10 @@ export function apply(ctx: Context): void {
       const reviewId = randomUUID()
       const subject = String(args.subject)
       const content = String(args.content)
+      const contentBytes = Buffer.byteLength(subject) + Buffer.byteLength(content)
+      if (contentBytes > MAX_MESSAGE_BYTES - 512) {
+        throw new Error(`team_review: content too large (${contentBytes} bytes, max ${MAX_MESSAGE_BYTES}). Split the review into smaller parts.`)
+      }
       const msgId = randomUUID()
       await deliverMessage(
         agent,
