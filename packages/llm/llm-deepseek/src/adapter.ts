@@ -170,8 +170,33 @@ export class DeepSeekAdapter extends LlmAdapter {
     return this.config.options().retryPolicy
   }
 
-  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    return Promise.resolve(this.config.options().models.map(model => modelInfo(provider, model)))
+  override async listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    const connection = this.config.options()
+    // Auto-explore: when a key is available, fetch the remote `/models` list so
+    // the deployment discovers every model the endpoint serves instead of only
+    // the hard-coded catalog. Network/keyless failures fall back to the static list.
+    try {
+      const key = process.env[String(connection.apiKeyEnv)]
+      if (key !== undefined && key.length > 0) {
+        const res = await fetch(`${connection.baseURL}/models`, {
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        })
+        if (res.ok) {
+          const data: unknown = await res.json()
+          const raw: { id?: unknown; name?: unknown }[] =
+            Array.isArray(data) ? data as { id?: unknown; name?: unknown }[] : (data as { data?: { id?: unknown; name?: unknown }[] })?.data ?? []
+          const discovered = raw
+            .filter((m) => typeof m.id === 'string' && m.id.length > 0)
+            .map((m) => ({
+              id: m.id as string,
+              name: typeof m.name === 'string' ? m.name : m.id as string,
+              contextWindow: connection.defaultContextWindow,
+            }))
+          if (discovered.length > 0) return discovered.map((model) => modelInfo(provider, model))
+        }
+      }
+    } catch { /* network/keyless — keep the static catalog */ }
+    return connection.models.map((model) => modelInfo(provider, model))
   }
 
   override resolveModel(
