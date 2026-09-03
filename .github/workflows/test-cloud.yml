@@ -94,6 +94,10 @@ jobs:
         run: node apps/web/tests/conductor/delete-flow.mjs
         continue-on-error: true
 
+      - name: E2E — real-browser send-message (best-effort)
+        run: node apps/web/tests/conductor/send-message.mjs
+        continue-on-error: true
+
       - name: Upload evidence (log + screenshots)
         if: always()
         uses: actions/upload-artifact@v4
