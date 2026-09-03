@@ -101,11 +101,15 @@ try {
   await page.waitForTimeout(4000)
   await shot('2-deleted')
 
-  const list = await rpc('session.list', {})
-  const still = JSON.stringify(list).includes(SID)
-  log('session still listed after UI delete', still)
-  if (still) { log('FAIL: session still present after UI delete'); process.exit(1) }
-  log('PASS: UI delete removed the session')
+  // The archive set (from workspace.list) is what hides a session from the
+  // sidebar; session.list itself does not filter archived rows. Verify the
+  // UI delete archived the session (file removal is covered by delete-api-verify).
+  const wsList = await rpc('workspace.list', {})
+  const archived = wsList?.result?.value?.archivedSessionIds ?? wsList?.result?.archivedSessionIds ?? []
+  const archivedNow = Array.isArray(archived) && archived.includes(SID)
+  log('session archived after UI delete', archivedNow)
+  if (!archivedNow) { log('FAIL: session not archived after UI delete'); process.exit(1) }
+  log('PASS: UI delete archived the session')
 } catch (e) {
   console.error('[FAIL]', e instanceof Error ? e.stack : e)
   await shot('failure')
