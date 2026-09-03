@@ -51,6 +51,54 @@ const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
   { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: DEFAULT_CONTEXT_WINDOW },
 ]
 
+/** Cheap, tool-capable model ids tried in order when auto-selecting the best model. */
+const PREFERRED_MODEL_IDS = [
+  'deepseek-v4-flash',
+  'deepseek-v4-flash-0731',
+  'qwen3.7-flash',
+  'glm-5.3-flash',
+  'minimax-m2.5',
+]
+
+/**
+ * Discover the remote model list from an OpenAI-compatible `GET /models`
+ * endpoint. Lets a deployment auto-explore available models instead of relying
+ * on the hard-coded catalog, so a single API key is enough to start using the
+ * tools without re-configuring the model.
+ * @param baseURL - provider endpoint (e.g. `https://tokenrhythm.studio/v1`).
+ * @param apiKey - bearer token for the endpoint.
+ * @returns the discovered catalog, each entry using the default context window.
+ */
+export async function discoverRemoteModels(baseURL: string, apiKey: string): Promise<DeepSeekCatalogModel[]> {
+  const res = await fetch(`${baseURL}/models`, {
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) throw new Error(`model discovery failed: ${res.status}`)
+  const data: unknown = await res.json()
+  const list: { id?: unknown; name?: unknown }[] =
+    Array.isArray(data) ? data as { id?: unknown; name?: unknown }[] : (data as { data?: { id?: unknown; name?: unknown }[] })?.data ?? []
+  return list
+    .filter((m) => typeof m.id === 'string' && m.id.length > 0)
+    .map((m) => ({
+      id: m.id as string,
+      name: typeof m.name === 'string' ? m.name : m.id as string,
+      contextWindow: DEFAULT_CONTEXT_WINDOW,
+    }))
+}
+
+/**
+ * Pick the best model from a discovered list: the first preferred cheap,
+ * tool-capable id that exists, then the first entry.
+ * @param models - discovered catalog.
+ * @returns the chosen model id, or `undefined` for an empty list.
+ */
+export function selectBestModel(models: readonly DeepSeekCatalogModel[]): string | undefined {
+  for (const preferred of PREFERRED_MODEL_IDS) {
+    if (models.some((m) => m.id === preferred)) return preferred
+  }
+  return models[0]?.id
+}
+
 /**
  * Plugin config, validated by the same-named schemastery schema and doubling
  * as the `llm-deepseek` settings-section shape. Every field is optional in
