@@ -33,6 +33,10 @@ try {
   // until the first prompt. Send one so the row becomes non-blank.
   const prompted = await rpc('session.prompt', { sessionId: SID, mode: 'queue', content: [{ type: 'text', text: 'ping' }] })
   log('session.prompt ok', prompted?.result?.ok)
+  // Let the agent driver claim the message + run a turn, then inspect history.
+  await new Promise(r => setTimeout(r, 8000))
+  const hist = await rpc('session.history', { sessionId: SID })
+  log('session.history', JSON.stringify(hist).slice(0, 400))
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForLoadState('networkidle').catch(() => {})
