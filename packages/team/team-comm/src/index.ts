@@ -1269,6 +1269,9 @@ export function apply(ctx: Context): void {
         case 'create': {
           const title = String(args.title ?? '').trim()
           if (title.length === 0) throw new Error('team_task create: title is required')
+          if (args.description !== undefined && Buffer.byteLength(String(args.description), 'utf-8') > MAX_MESSAGE_BYTES) {
+            throw new Error(`team_task create: description too large (max ${MAX_MESSAGE_BYTES} bytes)`)
+          }
           const priority = args.priority !== undefined ? String(args.priority) as TeamTask['priority'] : undefined
           if (priority !== undefined && !['low', 'normal', 'high', 'urgent'].includes(priority)) {
             throw new Error(`team_task create: invalid priority "${priority}"`)
@@ -1336,6 +1339,12 @@ export function apply(ctx: Context): void {
           }
           if (args.status !== undefined && !['todo', 'in_progress', 'done', 'blocked'].includes(args.status)) {
             throw new Error(`team_task update: invalid status "${args.status}"`)
+          }
+          if (args.description !== undefined && Buffer.byteLength(String(args.description), 'utf-8') > MAX_MESSAGE_BYTES) {
+            throw new Error(`team_task update: description too large (max ${MAX_MESSAGE_BYTES} bytes)`)
+          }
+          if (args.result !== undefined && Buffer.byteLength(String(args.result), 'utf-8') > MAX_MESSAGE_BYTES) {
+            throw new Error(`team_task update: result too large (max ${MAX_MESSAGE_BYTES} bytes)`)
           }
           let notify: { creator: string; title: string; status: TeamTask['status']; result?: string } | undefined
           let reassignTo: string | undefined
@@ -1419,6 +1428,9 @@ export function apply(ctx: Context): void {
           const key = String(args.key ?? '').trim()
           const value = String(args.value ?? '')
           if (key.length === 0) throw new Error('team_memory set: key is required')
+          if (Buffer.byteLength(value, 'utf-8') > MAX_MESSAGE_BYTES) {
+            throw new Error(`team_memory set: value too large (${Buffer.byteLength(value, 'utf-8')} bytes, max ${MAX_MESSAGE_BYTES})`)
+          }
           // Append-only: O(1) per set; get/list resolve "latest wins" by tail order.
           return lockedAppend(file, { key, value, updatedBy: agent.session.id, ts: now() })
             .then(() => ({ ok: true, key, value }))
