@@ -761,10 +761,14 @@ export function apply(ctx: Context): void {
           const reply = m.replyTo ? ` [reply to ${m.replyTo.slice(0, 8)}…]` : ''
           return `[${m.ts}] ${m.msgId.slice(0, 8)}… from ${m.from}${reply}: ${m.message}`
         })
-        lines.push('')
-        lines.push('!!! REPLY REQUIRED: You MUST reply to EACH message above using team_send(target: <from>, reply_to: <msgId>, message: <your response>).')
-        lines.push('If you need to research first, reply with a SHORT status like "Working on it, will report back" — then research. But you MUST call team_send NOW before doing anything else.')
-        lines.push('Do NOT just report to the user. Your teammates are WAITING. Call team_send NOW.')
+        // Only demand replies for genuinely unread messages; an `all:true`
+        // history read must not re-demand replies for already-read entries.
+        if (v.new_count > 0) {
+          lines.push('')
+          lines.push('!!! REPLY REQUIRED: You MUST reply to EACH new message above using team_send(target: <from>, reply_to: <msgId>, message: <your response>).')
+          lines.push('If you need to research first, reply with a SHORT status like "Working on it, will report back" — then research. But you MUST call team_send NOW before doing anything else.')
+          lines.push('Do NOT just report to the user. Your teammates are WAITING. Call team_send NOW.')
+        }
         return [{ type: 'text' as const, text: `${v.new_count} new message(s):\n${lines.join('\n')}` }]
       },
     },
