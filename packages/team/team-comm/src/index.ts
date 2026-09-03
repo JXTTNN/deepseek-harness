@@ -1319,6 +1319,9 @@ export function apply(ctx: Context): void {
           if (priority !== undefined && !['low', 'normal', 'high', 'urgent'].includes(priority)) {
             throw new Error(`team_task update: invalid priority "${priority}"`)
           }
+          if (args.status !== undefined && !['todo', 'in_progress', 'done', 'blocked'].includes(args.status)) {
+            throw new Error(`team_task update: invalid status "${args.status}"`)
+          }
           let notify: { creator: string; title: string; status: TeamTask['status']; result?: string } | undefined
           let reassignTo: string | undefined
           return lockedUpdate<TeamTask>(file, (tasks) => {
