@@ -1110,10 +1110,12 @@ export function apply(ctx: Context): void {
               },
             },
           },
+          note: { type: 'string' },
         },
       },
       render: (_args, value) => {
-        const v = value as { broadcastId: string; sentTo: number }
+        const v = value as { broadcastId: string; sentTo: number; note?: string }
+        if (v.note !== undefined) return [{ type: 'text' as const, text: v.note }]
         return [{ type: 'text' as const, text: `Broadcast ${v.broadcastId.slice(0, 8)}… sent to ${v.sentTo} peer(s). Collect replies with team_collect(broadcastId: "${v.broadcastId}").` }]
       },
     },
