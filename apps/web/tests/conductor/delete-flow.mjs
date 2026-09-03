@@ -40,8 +40,8 @@ try {
   log('event types', JSON.stringify(evts.map(e => e.event?.type)))
 
   // Diagnostic: is the session in the list, and what is its blank flag?
-  const list = await rpc('session.list', {})
-  const listed = list?.result?.value?.items ?? []
+  const listResp = await rpc('session.list', {})
+  const listed = listResp?.result?.value?.items ?? []
   const mine = listed.find(s => s.sessionId === SID)
   log('in session.list', mine !== undefined, mine ? JSON.stringify({ blank: mine.blank, title: mine.title, displayTitle: mine.displayTitle }) : '')
 
