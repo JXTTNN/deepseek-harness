@@ -13,7 +13,6 @@
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
-import { homedir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -1718,7 +1717,7 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: `Session ${v.deleted} deleted. ${v.details.join('; ')}. ${v.note}` }]
       },
     },
-    execute: (args: { sessionId: string }, exec: any) => {
+    execute: async (args: { sessionId: string }, exec: any) => {
       const agent = exec.agent
       if (!agent) throw new Error('session_delete: no agent context')
       const cwd = teamCwd(agent)
@@ -1729,49 +1728,22 @@ export function apply(ctx: Context): void {
 
       const results: string[] = []
 
-      // 1. Remove session files from DSH_HOME/sessions/ (scan for correct directory).
-      //    The harness resolves its home through resolveDshHome() (`$DSH_HOME` then
-      //    `~/.dsh`), so mirror that fallback here: a bare `process.env.DSH_HOME`
-      //    read would skip file deletion entirely on a default (unset) launch.
-      const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-      if (dshHome) {
-        const sessionsRoot = join(dshHome, 'sessions')
-        if (existsSync(sessionsRoot)) {
-          let found = false
-          for (const projectDir of readdirSync(sessionsRoot)) {
-            const projectPath = join(sessionsRoot, projectDir)
-            if (!existsSync(projectPath)) continue
-            for (const entry of readdirSync(projectPath)) {
-              const sessionPath = join(projectPath, entry)
-              // Check if this directory contains a session log for our sessionId
-              const jsonlPath = join(sessionPath, 'session.jsonl')
-              const zstdPath = join(sessionPath, 'session.jsonl.zstd')
-              if (existsSync(jsonlPath)) {
-                try {
-                  const firstLine = (readFileSync(jsonlPath, 'utf-8').split('\n')[0] ?? '') as string
-                  const header = JSON.parse(firstLine)
-                  if (header.id === sessionId) {
-                    rmSync(sessionPath, { recursive: true, force: true })
-                    results.push(`Removed session directory: ${sessionPath}`)
-                    found = true
-                    break
-                  }
-                } catch { /* skip unparsable */ }
-              }
-              // zstd artifacts cannot be header-read without decompression, so
-              // only delete when the directory name itself matches the target id.
-              if (!found && existsSync(zstdPath) && entry === sessionId) {
-                rmSync(sessionPath, { recursive: true, force: true })
-                results.push(`Removed session directory (zstd): ${sessionPath}`)
-                found = true
-                break
-              }
-            }
-            if (found) break
+      // 1. Remove the session's backend-owned artifact through the persistence
+      //    backend's own locator (id encoding + compression suffix stay the
+      //    backend's concern), mirroring workspace.deleteSession.
+      const persistence = ctx.get('sessionPersistence') as
+        | { list(): Promise<{ id: string }[]>; locate(meta: { id: string }): { path: string } | undefined }
+        | undefined
+      if (persistence !== undefined) {
+        const header = (await persistence.list()).find(c => c.id === sessionId)
+        if (header !== undefined) {
+          const location = persistence.locate(header)
+          if (location !== undefined) {
+            rmSync(dirname(location.path), { recursive: true, force: true })
+            results.push(`Removed session directory: ${dirname(location.path)}`)
           }
-          if (!found) {
-            results.push(`Session directory not found for: ${sessionId}`)
-          }
+        } else {
+          results.push(`Session directory not found for: ${sessionId}`)
         }
       }
 
@@ -1790,11 +1762,11 @@ export function apply(ctx: Context): void {
         results.push(`Removed team inbox: ${inboxFile}`)
       }
 
-      return Promise.resolve({
+      return {
         deleted: sessionId,
         details: results,
         note: 'Storage caches (workspace.json, session_projcache.json) will be cleaned on next server restart. The session is now fully deleted from disk.',
-      })
+      }
     },
     presentCall: (args: any) => ({
       card: 'generic' as const,
