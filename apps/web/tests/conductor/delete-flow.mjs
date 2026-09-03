@@ -36,7 +36,8 @@ try {
   // Let the agent driver claim the message + run a turn, then inspect history.
   await new Promise(r => setTimeout(r, 8000))
   const hist = await rpc('session.history', { sessionId: SID })
-  log('session.history', JSON.stringify(hist).slice(0, 400))
+  const evts = hist?.result?.value?.events ?? []
+  log('event types', JSON.stringify(evts.map(e => e.event?.type)))
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForLoadState('networkidle').catch(() => {})
