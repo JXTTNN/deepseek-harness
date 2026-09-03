@@ -75,12 +75,19 @@ try {
   log('delete button visible', visible)
   await shot('1-delete-btn')
 
-  if (!visible) {
-    log('SKIP: delete button not visible (selector/DOM mismatch)')
-    process.exit(0)
+  if (visible) {
+    await delBtn.click()
+  } else {
+    // The rowActions span is display:none until `.sessionRow:hover`, which this
+    // headless hover did not trigger; dispatch the button's own click so the
+    // same onDelete handler runs (a real delete, not a visibility no-op).
+    log('hover did not reveal delete; clicking via DOM')
+    await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(b =>
+        b.getAttribute('aria-label') === 'Delete' || b.getAttribute('aria-label') === '删除')
+      btn?.click()
+    })
   }
-
-  await delBtn.click()
   await page.waitForTimeout(1500)
   await shot('2-deleted')
 
