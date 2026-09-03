@@ -31,12 +31,19 @@ try {
   if (!created?.result?.ok) { process.exit(1) }
   // A session with no events is "blank": Rows.tsx hides the row verbs (Delete)
   // until the first prompt. Send one so the row becomes non-blank.
-  const prompted = await rpc('session.prompt', { sessionId: SID, mode: 'steer', content: [{ type: 'text', text: 'ping' }] })
+  const prompted = await rpc('session.prompt', { sessionId: SID, mode: 'queue', content: [{ type: 'text', text: 'ping' }] })
   log('session.prompt ok', prompted?.result?.ok)
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForLoadState('networkidle').catch(() => {})
   await page.waitForTimeout(3000)
+
+  // Diagnostic: what the sidebar actually rendered.
+  const bodyText = (await page.evaluate(() => document.body.innerText)).slice(0, 500)
+  log('body text', JSON.stringify(bodyText))
+  const labels = await page.locator('button').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label')).filter(Boolean).slice(0, 25))
+  log('button aria-labels', JSON.stringify(labels))
+  log('treeitem count', await page.locator('[role="treeitem"]').count())
 
   // Hover the first session row to reveal its actions, then click Delete.
   const delBtn = page.locator('button[aria-label="Delete"], button[aria-label="删除"]').first()
