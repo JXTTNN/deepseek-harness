@@ -1680,6 +1680,10 @@ export function apply(ctx: Context): void {
       if (!agent) throw new Error('team_barrier: no agent context')
       const name = assertSafeTeamId(String(args.name ?? ''), 'team_barrier name')
       if (name.length === 0) throw new Error('team_barrier: name is required')
+      if (name.length > 200) throw new Error(`team_barrier: name too long (${name.length} chars, max 200)`)
+      if (args.action !== 'arrive' && args.action !== 'wait' && args.action !== 'reset') {
+        throw new Error(`team_barrier: invalid action "${String(args.action)}"`)
+      }
       mkdirSync(join(teamCwd(agent), TEAM_DIR), { recursive: true })
       const file = teamPath(agent, `barrier-${name}.json`)
       const expect = typeof args.expect === 'number' && args.expect > 0 ? Math.floor(args.expect) : 1
