@@ -1,8 +1,7 @@
-// Real-browser delete flow: create a workspace + session via the HTTP API as
-// FIXTURE SETUP (headless has no native directory picker), then exercise the
-// DELETE itself through real UI events — hover the sidebar row, click its
-// "delete" menu item, answer the native confirm dialog. Verifies the fix that
-// deleteSession removes the session from disk.
+// Real-browser delete flow: API fixture creates a workspace + session, then the
+// DELETE is exercised through real UI events — hover the sidebar row, click its
+// direct Delete button (Rows.tsx renders aria-label="Delete"), answer the native
+// confirm. Verifies deleteSession removes the session.
 //
 // Run: node apps/web/tests/conductor/delete-flow.mjs
 
@@ -25,44 +24,39 @@ page.on('dialog', async (d) => { log('dialog', d.type(), d.message()); await d.a
 const shot = (n) => page.screenshot({ path: `delete-flow-${n}.png` }).catch(() => {})
 
 try {
-  // Fixture: workspace + one real session.
   const home = process.env.HOME || '/home/runner'
   await rpc('workspace.create', { path: home })
   const created = await rpc('session.create', { sessionId: SID, cwd: home })
-  log('session.create ok', created?.result?.ok, JSON.stringify(created?.result?.error ?? null).slice(0, 100))
+  log('session.create ok', created?.result?.ok)
   if (!created?.result?.ok) { process.exit(1) }
 
-  // Open the shell and let the sidebar list the session.
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForLoadState('networkidle').catch(() => {})
   await page.waitForTimeout(3000)
 
-  // Find a row whose menu offers Delete, then click it.
-  const deleteItem = page.getByRole('menuitem', { name: /delete|删除/i }).first()
-  let menuOpen = await deleteItem.isVisible().catch(() => false)
-  const rows = page.locator('[role="treeitem"], li')
-  for (let k = 0; k < Math.min(await rows.count(), 40) && !menuOpen; k++) {
-    await rows.nth(k).hover().catch(() => {})
-    const mores = page.locator('button[aria-label*="menu" i], button[aria-label*="more" i], button[aria-label*="操作"]')
-    for (let m = 0; m < await mores.count() && !menuOpen; m++) {
-      await mores.nth(m).click().catch(() => {})
-      menuOpen = await deleteItem.isVisible().catch(() => false)
-      if (!menuOpen) await page.keyboard.press('Escape').catch(() => {})
+  // Hover the first session row to reveal its actions, then click Delete.
+  const delBtn = page.locator('button[aria-label="Delete"], button[aria-label="删除"]').first()
+  let visible = await delBtn.isVisible().catch(() => false)
+  if (!visible) {
+    const rows = page.locator('[role="treeitem"]')
+    for (let k = 0; k < Math.min(await rows.count(), 30) && !visible; k++) {
+      await rows.nth(k).hover().catch(() => {})
+      await page.waitForTimeout(200)
+      visible = await delBtn.isVisible().catch(() => false)
     }
   }
-  log('delete menu visible', menuOpen)
-  await shot('1-menu')
+  log('delete button visible', visible)
+  await shot('1-delete-btn')
 
-  if (!menuOpen) {
-    log('SKIP: delete menu not reachable (selectors need refinement against real DOM)')
+  if (!visible) {
+    log('SKIP: delete button not visible (selector/DOM mismatch)')
     process.exit(0)
   }
 
-  await deleteItem.click()
+  await delBtn.click()
   await page.waitForTimeout(1500)
   await shot('2-deleted')
 
-  // Verify the session is gone from the server's list.
   const list = await rpc('session.list', {})
   const still = JSON.stringify(list).includes(SID)
   log('session still listed after UI delete', still)
