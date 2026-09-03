@@ -81,6 +81,9 @@ jobs:
       - name: Verify — team peer discovery (presence)
         run: node apps/web/tests/conductor/team-find-peer.mjs
 
+      - name: Verify — cross-process lock (no data loss)
+        run: node apps/web/tests/conductor/lock-test.mjs
+
       - name: E2E — real-browser UI probe (best-effort)
         run: node apps/web/tests/conductor/delete-flow.mjs
         continue-on-error: true
