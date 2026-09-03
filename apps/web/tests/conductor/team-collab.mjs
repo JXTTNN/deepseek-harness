@@ -33,6 +33,8 @@ try {
 
   const hist = await rpc('session.history', { sessionId: SID })
   const events = hist?.result?.value?.events ?? []
+  const types = events.map(e => e.event?.type)
+  log('event types', JSON.stringify(types))
   const callEvents = events.filter(e => e.event?.type === 'tool/call')
   if (callEvents.length > 0) log('first tool/call data', JSON.stringify(callEvents[0].event?.data).slice(0, 300))
   const toolCalls = callEvents
@@ -41,6 +43,8 @@ try {
   const teamCalls = toolCalls.filter(n => String(n).startsWith('team_'))
   log('tool calls', JSON.stringify(toolCalls))
   log('team tool calls', JSON.stringify(teamCalls))
+  const msgEvents = events.filter(e => e.event?.type === 'assistant/message')
+  if (msgEvents.length > 0) log('first assistant/message', JSON.stringify(msgEvents[0].event?.data).slice(0, 400))
 
   if (teamCalls.length === 0) {
     log('FAIL: agent did not invoke any team_* tool')
