@@ -107,6 +107,15 @@ try {
   const value = await composer.inputValue()
   log('composer value', JSON.stringify(value))
   if (value !== 'ui-send-probe') {
+    // Dump every textarea's real state to locate the editable composer.
+    const tas = await page.locator('textarea').evaluateAll(els => els.map(el => ({
+      placeholder: el.getAttribute('placeholder'),
+      disabled: el.disabled,
+      readOnly: el.readOnly,
+      ariaDisabled: el.getAttribute('aria-disabled'),
+      className: (el.className || '').toString().slice(0, 60),
+    })))
+    log('DIAG textareas', JSON.stringify(tas))
     log('FAIL: composer fill did not register')
     process.exit(1)
   }
