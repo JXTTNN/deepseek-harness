@@ -252,6 +252,7 @@ describe('the shipped Web composition', () => {
       // is the preset's own directory (same baseUrl pattern as the cordis preset).
       const scopedSkills = (await ctx.skills.list({ scope: handle.agent })).map(skill => skill.name)
       expect(scopedSkills).toContain('office-documents')
+      expect(scopedSkills).toContain('deep-research')
     } finally {
       await handle.dispose()
     }
