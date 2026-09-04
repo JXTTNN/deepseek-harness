@@ -78,42 +78,20 @@ try {
   const composer = await ensureComposer()
   log('composer connected', true)
 
-  // A model must be selected before the Send button enables. Open the model
-  // picker and choose the first available model (menuitemradio), the same
-  // gesture a real user performs.
-  const modelTrigger = page.getByRole('button', { name: /^Select model/ }).first()
-  if (await modelTrigger.count() > 0) {
-    await modelTrigger.click().catch(() => {})
-    // The menu is two-level: root shows a "Model" menuitem, which opens the
-    // menuitemradio list. Click through the same way a real user does.
-    const modelPane = page.getByRole('menuitem', { name: 'Model', exact: true }).first()
-    if (await modelPane.count() > 0) {
-      await modelPane.click().catch(() => {})
-      await page.waitForTimeout(500)
-    }
-    const firstModel = page.getByRole('menuitemradio').first()
-    if (await firstModel.count() > 0) {
-      await firstModel.click().catch(() => {})
-      await page.waitForTimeout(800)
-      log('model selected', true)
-    } else {
-      log('model menu opened but no menuitemradio')
-    }
-  } else {
-    log('model already selected or trigger absent')
-  }
-
-  await composer.fill('ui-send-probe')
-  const value = await composer.inputValue()
+  // Click first: the hero input ("Describe what you want to build") starts a
+  // new session on focus/click and may be REPLACED by the live composer
+  // ("Message the agent"), so re-resolve the locator after activating it.
+  await composer.click().catch(() => {})
+  await page.waitForTimeout(800)
+  const liveComposer = page.locator('textarea:enabled').last()
+  await liveComposer.fill('ui-send-probe')
+  const value = await liveComposer.inputValue()
   log('composer value', JSON.stringify(value))
   if (value !== 'ui-send-probe') {
-    // Dump every textarea's real state to locate the editable composer.
     const tas = await page.locator('textarea').evaluateAll(els => els.map(el => ({
       placeholder: el.getAttribute('placeholder'),
       disabled: el.disabled,
       readOnly: el.readOnly,
-      ariaDisabled: el.getAttribute('aria-disabled'),
-      className: (el.className || '').toString().slice(0, 60),
     })))
     log('DIAG textareas', JSON.stringify(tas))
     log('FAIL: composer fill did not register')
