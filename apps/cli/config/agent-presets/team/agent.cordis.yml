@@ -58,8 +58,17 @@
 
 # ── skills ──────────────────────────────────────────────────────────────────
 
+# `skill-filesystem` contributes local-root discovery for agents on this preset,
+# and `tool-skill` gives them the catalog and loader. The office-documents skill
+# travels with THIS preset (same pattern as the cordis preset's skills dir):
+# `baseUrl` is the preset's own directory, so the root resolves wherever the
+# preset is installed. It needs no realm — it registers into this preset's layer
+# of the host skill registry.
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    customSkillDirs:
+      - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
 
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'

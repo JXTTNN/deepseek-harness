@@ -247,6 +247,11 @@ describe('the shipped Web composition', () => {
       expect(persona?.text).toContain('create_goal')
       expect(persona?.text).toContain('team_inbox')
       expect(persona?.text).toContain('github_issue_create')
+
+      // The office-documents skill travels with the team preset: its skill root
+      // is the preset's own directory (same baseUrl pattern as the cordis preset).
+      const scopedSkills = (await ctx.skills.list({ scope: handle.agent })).map(skill => skill.name)
+      expect(scopedSkills).toContain('office-documents')
     } finally {
       await handle.dispose()
     }
