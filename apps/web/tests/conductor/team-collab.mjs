@@ -45,9 +45,6 @@ try {
   log('team tool calls', JSON.stringify(teamCalls))
   const msgEvents = events.filter(e => e.event?.type === 'assistant/message')
   if (msgEvents.length > 0) log('first assistant/message', JSON.stringify(msgEvents[0].event?.data).slice(0, 400))
-  // Diagnostics: full raw assistant/message blocks and all tool/call events.
-  if (msgEvents.length > 0) log('DIAG message blocks', JSON.stringify(msgEvents[0].event?.data?.message?.content ?? msgEvents[0].event?.data))
-  log('DIAG all tool/call events', JSON.stringify(callEvents.map(e => e.event?.data)))
 
   if (teamCalls.length === 0) {
     log('FAIL: agent did not invoke any team_* tool')

@@ -150,7 +150,6 @@ export async function* translate(payloads: AsyncIterable<string>): AsyncGenerato
       }
 
       for (const call of delta?.tool_calls ?? []) {
-        if (delta?.tool_calls !== undefined) console.error('[llm-deepseek translate] raw tool_calls delta:', JSON.stringify(delta.tool_calls))
         let block = toolBlocks.get(call.index)
         if (!block) {
           block = open('tool-call')
@@ -158,7 +157,12 @@ export async function* translate(payloads: AsyncIterable<string>): AsyncGenerato
           yield { type: 'block-start', index: block.index, blockType: 'tool-call' }
         }
         if (call.id !== undefined) block.callId = call.id
-        if (call.function?.name !== undefined) block.name = call.function.name
+        // Some OpenAI-compatible gateways emit a follow-up delta with an empty
+        // `name` (""), which must not clobber the name the first delta already
+        // delivered. Only accept a non-empty name.
+        if (typeof call.function?.name === 'string' && call.function.name.length > 0) {
+          block.name = call.function.name
+        }
         const fragment = call.function?.arguments ?? ''
         block.text += fragment
         yield {
