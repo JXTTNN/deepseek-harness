@@ -19,41 +19,58 @@ const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
 const browser = await chromium.launch({ headless: true })
 const page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: 'en-US' })
 page.setDefaultTimeout(20000)
+page.on('console', (m) => { if (m.type() === 'error') log('browser', m.text().slice(0, 200)) })
 
 try {
   const home = process.env.HOME || '/home/runner'
   const ws = await rpc('workspace.create', { path: home })
   const workspaceId = ws?.result?.value?.workspace?.workspaceId ?? ws?.result?.value?.workspaceId ?? ws?.result?.workspaceId
-  await rpc('session.create', { sessionId: SID, workspaceId })
-  log('session.create ok')
+  const created = await rpc('session.create', { sessionId: SID, workspaceId })
+  log('session.create ok', created?.result?.ok)
+  if (!created?.result?.ok) process.exit(1)
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForLoadState('networkidle').catch(() => {})
   await page.waitForTimeout(3000)
 
-  // Type into the composer and send.
-  const composer = page.locator('textarea:enabled, [contenteditable="true"]').first()
+  // Activate the session through the real sidebar UI: click its row so the
+  // composer binds to it and the Send button enables. The API-created session
+  // must be visible in the tree; click by aria-label match on the row.
+  const row = page.locator(`[role="treeitem"]:has-text("${SID}")`).first()
+  const rowCount = await row.count()
+  log('session row in sidebar', rowCount > 0)
+  if (rowCount > 0) {
+    await row.click().catch(() => {})
+    await page.waitForTimeout(1500)
+  }
+
+  // The live composer enables only once a workspace/session is chosen. Use the
+  // same selector the passing e2e specs use: the enabled textarea, last (the
+  // composer), filled rather than keyboard-typed so React state updates.
+  const composer = page.locator('textarea:enabled').last()
   const hasComposer = await composer.count() > 0
   log('composer found', hasComposer)
   if (!hasComposer) {
     const labels = await page.locator('button').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label')).filter(Boolean).slice(0, 30))
     log('button aria-labels', JSON.stringify(labels))
-    process.exit(0)
+    log('FAIL: no enabled composer textarea')
+    process.exit(1)
   }
-  await composer.click().catch(() => {})
-  await page.keyboard.type('ui-send-probe', { delay: 20 })
-  await page.waitForTimeout(500)
-  const sendBtn = page.locator('button[aria-label="Send message"], button[aria-label="发送"]').first()
+  await composer.fill('ui-send-probe')
+  const value = await composer.inputValue()
+  log('composer value', JSON.stringify(value))
+  await page.waitForTimeout(300)
+
+  const sendBtn = page.getByRole('button', { name: 'Send message', exact: true })
   const hasSend = await sendBtn.count() > 0
-  const disabled = await sendBtn.isDisabled().catch(() => true)
+  const disabled = hasSend ? await sendBtn.isDisabled().catch(() => true) : true
   log('send button found', hasSend, 'disabled', disabled)
-  if (hasSend && !disabled) {
-    await sendBtn.click()
-    await page.waitForTimeout(6000)
-  } else {
-    log('SKIP: send button disabled (empty composer or workspace not chosen)')
-    process.exit(0)
+  if (!hasSend || disabled) {
+    log('FAIL: send button not enabled after typing (workspace/session not activated)')
+    process.exit(1)
   }
+  await sendBtn.click()
+  await page.waitForTimeout(6000)
 
   const hist = await rpc('session.history', { sessionId: SID })
   const events = hist?.result?.value?.events ?? []
