@@ -84,6 +84,13 @@ try {
   const modelTrigger = page.getByRole('button', { name: /^Select model/ }).first()
   if (await modelTrigger.count() > 0) {
     await modelTrigger.click().catch(() => {})
+    // The menu is two-level: root shows a "Model" menuitem, which opens the
+    // menuitemradio list. Click through the same way a real user does.
+    const modelPane = page.getByRole('menuitem', { name: 'Model', exact: true }).first()
+    if (await modelPane.count() > 0) {
+      await modelPane.click().catch(() => {})
+      await page.waitForTimeout(500)
+    }
     const firstModel = page.getByRole('menuitemradio').first()
     if (await firstModel.count() > 0) {
       await firstModel.click().catch(() => {})
