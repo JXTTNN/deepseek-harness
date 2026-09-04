@@ -78,6 +78,24 @@ try {
   const composer = await ensureComposer()
   log('composer connected', true)
 
+  // A model must be selected before the Send button enables. Open the model
+  // picker and choose the first available model (menuitemradio), the same
+  // gesture a real user performs.
+  const modelTrigger = page.getByRole('button', { name: /^Select model/ }).first()
+  if (await modelTrigger.count() > 0) {
+    await modelTrigger.click().catch(() => {})
+    const firstModel = page.getByRole('menuitemradio').first()
+    if (await firstModel.count() > 0) {
+      await firstModel.click().catch(() => {})
+      await page.waitForTimeout(800)
+      log('model selected', true)
+    } else {
+      log('model menu opened but no menuitemradio')
+    }
+  } else {
+    log('model already selected or trigger absent')
+  }
+
   await composer.fill('ui-send-probe')
   const value = await composer.inputValue()
   log('composer value', JSON.stringify(value))
