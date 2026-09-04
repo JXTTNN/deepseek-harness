@@ -411,6 +411,13 @@
       config:
         apiKeyEnv: DEEPSEEK_API_KEY
 
+    # Keyless, self-hostable metasearch fallback: a free replacement for the
+    # keyed Perplexity/Exa providers. Not the default (public instances are
+    # rate-limited); mount it here so a deployment can switch `searchProvider`
+    # to `searxng` with only a baseURL change.
+    - id: web-search-searxng
+      name: '@deepseek-ai/dsh-web-search-searxng'
+
     - id: tool-web
       name: '@deepseek-ai/dsh-tool-web'
       config:
