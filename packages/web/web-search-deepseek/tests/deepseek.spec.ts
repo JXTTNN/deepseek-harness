@@ -26,7 +26,7 @@ const options = {
   baseURL: 'https://api.deepseek.test/anthropic/v1',
   model: 'deepseek-chat',
   apiVersion: '2023-06-01',
-  maxTokens: 4096,
+  maxTokens: 32768,
   maxUses: 5,
 }
 
@@ -181,7 +181,7 @@ describe('DeepSeekSearchProvider request mapping', () => {
     expect(headers['anthropic-version']).toBe('2023-06-01')
     const body = {
       model: 'deepseek-chat',
-      max_tokens: 4096,
+      max_tokens: 32768,
       messages: [{ role: 'user', content: [{ type: 'text', text: 'Perform a web search for the query: hello' }] }],
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
     }

@@ -41,10 +41,10 @@ export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash'
 export const DEEPSEEK_DEFAULT_API_VERSION = '2023-06-01'
 
 /** Default upper bound on generated tokens for the Messages request. */
-export const DEEPSEEK_DEFAULT_MAX_TOKENS = 4096
+export const DEEPSEEK_DEFAULT_MAX_TOKENS = 32768
 
 /** Default maximum `web_search` server-tool uses per request. */
-export const DEEPSEEK_DEFAULT_MAX_USES = 5
+export const DEEPSEEK_DEFAULT_MAX_USES = 10
 
 /** Attribution header sent on every request. Bump with the package version. */
 const USER_AGENT = 'deepseek-harness/0.0.1'

@@ -1,7 +1,8 @@
 /**
  * Register a DeepSeek-backed provider in `ctx.web`. It calls the Anthropic-compatible Messages API
- * with native `web_search_20250305`. The provider reuses `DEEPSEEK_API_KEY` but not
- * `DEEPSEEK_BASE_URL`, because search and chat-completions use different bases.
+ * with native `web_search_20250305`. The provider reuses `DEEPSEEK_API_KEY` and can follow
+ * `DEEPSEEK_BASE_URL` (the LLM chat-completions base URL) so that search and chat-completions
+ * can share the same endpoint configuration.
  * @module @deepseek-ai/dsh-web-search-deepseek
  */
 
@@ -74,10 +75,11 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * Environment variable naming this provider's endpoint. Deliberately distinct
- * from `$DEEPSEEK_BASE_URL`, which belongs to the chat-completions adapter:
- * search speaks the Anthropic-compatible Messages API, so one variable cannot
- * serve both.
+ * Environment variable naming this provider's endpoint. Falls back to
+ * `$DEEPSEEK_BASE_URL` (the LLM chat-completions base URL) so that the search
+ * seam can follow the same endpoint configuration as the LLM. When neither
+ * this variable nor `$DEEPSEEK_BASE_URL` is set, the Anthropic-compatible
+ * default is used.
  */
 const SEARCH_BASE_URL_ENV = 'DEEPSEEK_SEARCH_BASE_URL'
 
@@ -108,8 +110,9 @@ function resolveOptions(ctx: Context, config: Config): DeepSeekSearchProviderOpt
     },
     apiKeyEnv,
     baseURL: config.baseURL
-      ?? launchEnvironmentOf(ctx).get(SEARCH_BASE_URL_ENV)?.value
-      ?? DEEPSEEK_DEFAULT_BASE_URL,
+      ?? launchEnvironmentOf(ctx).get(SEARCH_BASE_URL_ENV)?.value    // Search-specific override
+      ?? launchEnvironmentOf(ctx).get('DEEPSEEK_BASE_URL')?.value   // Follow LLM config
+      ?? DEEPSEEK_DEFAULT_BASE_URL,                                // Hardcoded default
     model: config.model ?? DEEPSEEK_DEFAULT_MODEL,
     apiVersion: config.apiVersion ?? DEEPSEEK_DEFAULT_API_VERSION,
     maxTokens: config.maxTokens ?? DEEPSEEK_DEFAULT_MAX_TOKENS,
