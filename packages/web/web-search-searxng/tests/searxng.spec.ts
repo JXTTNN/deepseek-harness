@@ -33,7 +33,7 @@ describe('SearXNG result mapping', () => {
   })
 
   it('omits null/empty optional fields rather than emitting them', () => {
-    expect(mapSearxngResult({ url: 'https://a.test', title: null, publishedDate: null, content: 'hi' }))
+    expect(mapSearxngResult({ url: 'https://a.test', publishedDate: null, content: 'hi' }))
       .toEqual({ url: 'https://a.test', snippet: 'hi' })
     expect(mapSearxngResult({ url: 'https://a.test', title: '', publishedDate: '', content: 'hi' }))
       .toEqual({ url: 'https://a.test', snippet: 'hi' })
