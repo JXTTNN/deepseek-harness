@@ -306,6 +306,7 @@ export class DeepSeekAdapter extends LlmAdapter {
     onComment: () => void,
   ): AsyncIterable<StreamChunk> {
     const body = serializeRequest(options, connection.defaults)
+    console.error('[llm-deepseek request] model=', options.model, 'baseURL=', connection.baseURL)
     // Prepared outside the try so the TRANSPORT label below covers exactly the
     // transport boundary, never a serialization failure.
     const payload = JSON.stringify(body)

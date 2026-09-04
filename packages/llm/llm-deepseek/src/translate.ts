@@ -150,6 +150,7 @@ export async function* translate(payloads: AsyncIterable<string>): AsyncGenerato
       }
 
       for (const call of delta?.tool_calls ?? []) {
+        if (delta?.tool_calls !== undefined) console.error('[llm-deepseek translate] raw tool_calls delta:', JSON.stringify(delta.tool_calls))
         let block = toolBlocks.get(call.index)
         if (!block) {
           block = open('tool-call')
