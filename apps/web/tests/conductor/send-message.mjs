@@ -1,13 +1,15 @@
-// Real-person send-message probe: type into the composer input and click Send,
-// then verify the user message actually reached the session log. Complements the
-// API-driven prompt checks with a genuine UI input-box + button interaction.
+// Real-person send-message probe: connect a workspace through the UI picker,
+// type into the composer input, and click Send, then verify the user message
+// reached the session log. Complements the API-driven prompt checks with a
+// genuine UI input-box + button interaction.
 //
 // Run: node apps/web/tests/conductor/send-message.mjs
 
 import { chromium } from 'playwright'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 
 const BASE = process.env.DSH_WEB_URL ?? 'http://127.0.0.1:8300'
-const SID = `ui-send-${Date.now()}`
 const log = (...a) => console.log('[send]', ...a)
 
 const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
@@ -23,62 +25,64 @@ page.on('console', (m) => { if (m.type() === 'error') log('browser', m.text().sl
 
 try {
   const home = process.env.HOME || '/home/runner'
-  const ws = await rpc('workspace.create', { path: home })
-  const workspaceId = ws?.result?.value?.workspace?.workspaceId ?? ws?.result?.value?.workspaceId ?? ws?.result?.workspaceId
-  const created = await rpc('session.create', { sessionId: SID, workspaceId })
-  log('session.create ok', created?.result?.ok)
-  if (!created?.result?.ok) process.exit(1)
+  const wsRoot = join(home, 'send-probe-ws')
+  mkdirSync(wsRoot, { recursive: true })
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.waitForLoadState('networkidle').catch(() => {})
   await page.waitForTimeout(3000)
 
-  // Activate the session through the real sidebar UI: click its row so the
-  // composer binds to it and the Send button enables. The API-created session
-  // must be visible in the tree; click by aria-label match on the row.
-  const row = page.locator(`[role="treeitem"]:has-text("${SID}")`).first()
-  const rowCount = await row.count()
-  log('session row in sidebar', rowCount > 0)
-  if (rowCount > 0) {
-    await row.click().catch(() => {})
-    await page.waitForTimeout(1500)
-  }
+  // Connect a workspace through the real picker dialog (mirrors the passing
+  // e2e specs' connectFreshWorkspace): without a connected workspace the
+  // composer stays a locked placeholder and the Send button never enables.
+  await page.getByRole('textbox', { name: 'Choose workspace' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
+  await dialog.waitFor({ timeout: 10_000 })
+  await dialog.getByRole('button', { name: 'Edit path' }).click()
+  const pathInput = dialog.getByRole('textbox', { name: 'Edit path' })
+  await pathInput.fill(wsRoot)
+  await pathInput.press('Enter')
+  await dialog.getByRole('button', { name: 'Open', exact: true }).click()
 
-  // The live composer enables only once a workspace/session is chosen. Use the
-  // same selector the passing e2e specs use: the enabled textarea, last (the
-  // composer), filled rather than keyboard-typed so React state updates.
-  const composer = page.locator('textarea:enabled').last()
-  const hasComposer = await composer.count() > 0
-  log('composer found', hasComposer)
-  if (!hasComposer) {
-    const labels = await page.locator('button').evaluateAll(bs => bs.map(b => b.getAttribute('aria-label')).filter(Boolean).slice(0, 30))
-    log('button aria-labels', JSON.stringify(labels))
-    log('FAIL: no enabled composer textarea')
-    process.exit(1)
-  }
+  const composer = page.locator('textarea:enabled[placeholder="Describe what you want to build"]')
+  await composer.waitFor({ timeout: 15_000 })
+  log('composer connected', true)
+
   await composer.fill('ui-send-probe')
   const value = await composer.inputValue()
   log('composer value', JSON.stringify(value))
-  await page.waitForTimeout(300)
+  if (value !== 'ui-send-probe') {
+    log('FAIL: composer fill did not register')
+    process.exit(1)
+  }
 
   const sendBtn = page.getByRole('button', { name: 'Send message', exact: true })
-  const hasSend = await sendBtn.count() > 0
-  const disabled = hasSend ? await sendBtn.isDisabled().catch(() => true) : true
-  log('send button found', hasSend, 'disabled', disabled)
-  if (!hasSend || disabled) {
-    log('FAIL: send button not enabled after typing (workspace/session not activated)')
+  const disabled = await sendBtn.isDisabled().catch(() => true)
+  log('send button disabled', disabled)
+  if (disabled) {
+    log('FAIL: send button still disabled after typing')
     process.exit(1)
   }
   await sendBtn.click()
   await page.waitForTimeout(6000)
 
-  const hist = await rpc('session.history', { sessionId: SID })
-  const events = hist?.result?.value?.events ?? []
-  const userMsgs = events.filter(e => e.event?.type === 'user/message')
-  const text = JSON.stringify(userMsgs)
-  log('user/message events', userMsgs.length, text.slice(0, 200))
-  if (!text.includes('ui-send-probe')) {
-    log('FAIL: typed text did not reach the session log')
+  // Find the session the UI created for the connected workspace and confirm the
+  // typed text landed in its history.
+  const listResp = await rpc('session.list', {})
+  const items = listResp?.result?.value?.items ?? []
+  let found = false
+  for (const it of items) {
+    if (it.sessionId === undefined) continue
+    const hist = await rpc('session.history', { sessionId: it.sessionId })
+    const events = hist?.result?.value?.events ?? []
+    if (JSON.stringify(events).includes('ui-send-probe')) {
+      found = true
+      log('message found in session', it.sessionId)
+      break
+    }
+  }
+  if (!found) {
+    log('FAIL: typed text did not reach any session log')
     process.exit(1)
   }
   log('PASS: UI input-box send reached the session log')
