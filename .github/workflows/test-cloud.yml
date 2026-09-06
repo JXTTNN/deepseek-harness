@@ -21,6 +21,8 @@ env:
   # (packages/llm/llm-deepseek reads DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL).
   DEEPSEEK_API_KEY: ${{ secrets.DSH_API_KEY }}
   DEEPSEEK_BASE_URL: ${{ secrets.DSH_BASE_URL }}
+  # Optional model id for the raw endpoint probe; empty falls back to deepseek-chat.
+  DSH_MODEL_NAME: ${{ secrets.DSH_MODEL }}
   # The web shell serves on 3080 by default.
   DSH_PORT: '3080'
 
@@ -72,6 +74,26 @@ jobs:
           echo "$html" | grep -q '__DSH_BOOT__' && echo "boot injection present"
           echo "$html" | head -c 400
 
+      # Raw endpoint probe, independent of the harness stack: a failing
+      # team-collab with a failing probe is a credential/endpoint problem; a
+      # failing team-collab with a passing probe is a harness problem. The key
+      # is never echoed; the body is printed through a sk- redaction filter.
+      - name: Diagnose — raw LLM endpoint probe
+        id: llm-probe
+        run: |
+          base="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
+          model="${DSH_MODEL_NAME:-deepseek-chat}"
+          body=$(printf '{"model":"%s","messages":[{"role":"user","content":"ping"}],"max_tokens":4,"stream":false}' "$model")
+          code=$(curl -sS -o llm-probe.json -w '%{http_code}' \
+            -X POST "$base/chat/completions" \
+            -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+            -H 'Content-Type: application/json' \
+            --data "$body" --max-time 60) || code="curl-failed"
+          echo "llm probe http_status=$code model=$model base=$base"
+          head -c 800 llm-probe.json | sed -E 's/(sk-[A-Za-z0-9_-]{4,})/[REDACTED]/g' || true
+          echo
+          echo "status=$code" >> "$GITHUB_OUTPUT"
+
       - name: Install Playwright Chromium
         run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
 
@@ -102,6 +124,19 @@ jobs:
         run: node apps/web/tests/conductor/team-delegate.mjs
         continue-on-error: true
 
+      # Session event logs carry the llm/retry failure payloads team-collab
+      # only prints on failure — upload them as durable evidence for review.
+      - name: Upload session logs (failure diagnostics)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-detect-session-logs
+          path: |
+            ~/.dsh/sessions/**
+            llm-probe.json
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload evidence (log + screenshots)
         if: always()
         uses: actions/upload-artifact@v4
@@ -109,6 +144,7 @@ jobs:
           name: cloud-detect-evidence
           path: |
             dsh-web.log
+            llm-probe.json
             delete-flow-*.png
           if-no-files-found: ignore
           retention-days: 7

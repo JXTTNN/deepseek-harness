@@ -2,17 +2,57 @@
 // use the team coordination layer, then verify the agent actually invoked a
 // team_* tool (end-to-end, not just presence-file existence).
 //
+// Diagnostics: on failure, print every llm/retry failure payload (code,
+// message, status) and the assistant's streamed text, so a CI artifact tells
+// us whether the model errored (401/402/429/5xx), streamed garbage, or simply
+// ignored the tool call.
+//
 // Run: node apps/web/tests/conductor/team-collab.mjs
 
 const BASE = process.env.DSH_WEB_URL ?? 'http://127.0.0.1:8300'
 const SID = `team-collab-${Date.now()}`
 const log = (...a) => console.log('[team-collab]', ...a)
+const TURN_TIMEOUT_MS = Number(process.env.TEAM_COLLAB_TIMEOUT_MS ?? 180_000)
 
 const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ type: 'client-request', rpcId: `tc-${method}`, method, payload }),
 }).then(r => r.json())
+
+async function history() {
+  const hist = await rpc('session.history', { sessionId: SID })
+  return hist?.result?.value?.events ?? []
+}
+
+function dumpDiagnostics(events) {
+  const retries = events.filter(e => e.event?.type === 'llm/retry')
+  for (const e of retries) {
+    const f = e.event?.data?.failure ?? {}
+    log('llm/retry', JSON.stringify({
+      retry: e.event?.data?.retry,
+      mode: e.event?.data?.mode,
+      code: f.code,
+      status: f.status,
+      message: f.message,
+      provider: e.event?.data?.provider,
+    }))
+  }
+  const chunks = events
+    .filter(e => e.event?.type === 'assistant/chunk')
+    .map(e => e.event?.data?.chunk?.text ?? e.event?.data?.text ?? '')
+    .join('')
+  if (chunks.length > 0) log('assistant streamed text (first 500):', JSON.stringify(chunks.slice(0, 500)))
+  const messages = events.filter(e => e.event?.type === 'assistant/message')
+  for (const m of messages.slice(-2)) {
+    const text = JSON.stringify(m.event?.data?.message ?? m.event?.data ?? '')
+    log('assistant/message (first 500):', text.slice(0, 500))
+  }
+  const errors = events
+    .filter(e => /error|fail/i.test(String(e.event?.type)))
+    .map(e => e.event?.type)
+  if (errors.length > 0) log('error-ish events:', JSON.stringify(errors))
+}
 
 try {
   const home = process.env.HOME || '/home/runner'
@@ -28,18 +68,23 @@ try {
   })
   log('session.prompt ok', prompted?.result?.ok)
 
-  // Wait for the agent's turn to finish. A single 30s sleep is too fragile for
-  // CI: the LLM gateway round-trip from a GitHub runner can retry several
-  // times (observed: 7 retries in 28s), so poll the event log until a tool
-  // call appears or the deadline passes, and dump retry diagnostics on failure.
-  const deadline = Date.now() + 180_000
+  // Poll the event log instead of sleeping a fixed window. A single 30s sleep
+  // is too fragile for CI: the LLM gateway round-trip from a GitHub runner can
+  // retry several times (observed: 6 retries in ~28s). Exit early on the first
+  // tool call (the probe's success signal) or when the turn closes; otherwise
+  // run out the deadline and dump retry diagnostics below.
+  const deadline = Date.now() + TURN_TIMEOUT_MS
   let events = []
+  let settled = false
   while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 10_000))
-    const hist = await rpc('session.history', { sessionId: SID })
-    events = hist?.result?.value?.events ?? []
-    if (events.some(e => e.event?.type === 'tool/call')) break
+    events = await history()
+    if (events.some(e => e.event?.type === 'tool/call' || e.event?.type === 'turn/end')) {
+      settled = true
+      break
+    }
+    await new Promise(r => setTimeout(r, 3_000))
   }
+  log('turn settled', settled)
   const types = events.map(e => e.event?.type)
   log('event types', JSON.stringify(types))
   const retryEvents = events.filter(e => e.event?.type === 'llm/retry')
@@ -54,10 +99,9 @@ try {
   const teamCalls = toolCalls.filter(n => String(n).startsWith('team_'))
   log('tool calls', JSON.stringify(toolCalls))
   log('team tool calls', JSON.stringify(teamCalls))
-  const msgEvents = events.filter(e => e.event?.type === 'assistant/message')
-  if (msgEvents.length > 0) log('first assistant/message', JSON.stringify(msgEvents[0].event?.data).slice(0, 400))
 
   if (teamCalls.length === 0) {
+    dumpDiagnostics(events)
     log('FAIL: agent did not invoke any team_* tool')
     process.exit(1)
   }
