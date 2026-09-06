@@ -16,9 +16,14 @@ const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
 try {
   const r = await rpc('llm.models', {})
   log('raw', JSON.stringify(r).slice(0, 600))
-  const text = JSON.stringify(r)
-  // tokenrhythm-only model ids the hard-coded catalog does not list.
-  const hasRemote = /qwen3\.7-flash|glm-5\.3-flash|minimax-m2\.5|deepseek-v4-flash-0731/.test(text)
+  // Gateway-agnostic assertion: the hard-coded fallback catalog contains only
+  // deepseek-v4-flash and deepseek-v4-pro, so any other surfaced id proves the
+  // /models auto-discovery route applied.
+  const models = r?.result?.value?.groups?.flatMap(g => g.models ?? []).map(m => m.id) ?? []
+  const hardcoded = new Set(['deepseek-v4-flash', 'deepseek-v4-pro'])
+  const remote = models.filter(id => !hardcoded.has(id))
+  log('models', JSON.stringify(models))
+  const hasRemote = remote.length > 0
   log('contains remote model', hasRemote)
   if (!hasRemote) {
     log('FAIL: llm.models did not surface any remote model (auto-discovery not applied)')
