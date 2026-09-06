@@ -28,13 +28,24 @@ try {
   })
   log('session.prompt ok', prompted?.result?.ok)
 
-  // Wait for the agent to run its turn (LLM round-trip).
-  await new Promise(r => setTimeout(r, 30000))
-
-  const hist = await rpc('session.history', { sessionId: SID })
-  const events = hist?.result?.value?.events ?? []
+  // Wait for the agent's turn to finish. A single 30s sleep is too fragile for
+  // CI: the LLM gateway round-trip from a GitHub runner can retry several
+  // times (observed: 7 retries in 28s), so poll the event log until a tool
+  // call appears or the deadline passes, and dump retry diagnostics on failure.
+  const deadline = Date.now() + 180_000
+  let events = []
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 10_000))
+    const hist = await rpc('session.history', { sessionId: SID })
+    events = hist?.result?.value?.events ?? []
+    if (events.some(e => e.event?.type === 'tool/call')) break
+  }
   const types = events.map(e => e.event?.type)
   log('event types', JSON.stringify(types))
+  const retryEvents = events.filter(e => e.event?.type === 'llm/retry')
+  if (retryEvents.length > 0) {
+    log('llm/retry payloads', JSON.stringify(retryEvents.slice(-3).map(e => e.event?.data)).slice(0, 1200))
+  }
   const callEvents = events.filter(e => e.event?.type === 'tool/call')
   if (callEvents.length > 0) log('first tool/call data', JSON.stringify(callEvents[0].event?.data).slice(0, 300))
   const toolCalls = callEvents
