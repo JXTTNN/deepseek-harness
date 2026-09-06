@@ -120,3 +120,21 @@
 **线性扩展验证**：任务创建 2000→2.7s，4000→5.2s（≈2×），确认每操作 O(1)、随项目规模线性而非平方增长。
 
 **回归**：修复后 6 套测试全绿（29/28/46 passed + 跨进程 inbox 160/160 + tasks/mem 80/80 + resolve all pass）。
+
+---
+
+## 二点五、2026-09-06 扩展：契约优先委派 / 固定报告模式 / 收尾协议
+
+依据 `D:\workzone\team-collab-research.md` 的多智能体框架调研结论：当工作按**文件所有权分区**、扇入**仅由协调者以固定报告模式收口**、且**终止是显式动作**时，多 run 协作才稳定优于单 agent。本次围绕这三点做了外科手术式增补（沿用既有风格：`withFileLock` 覆盖全部新写路径、`assertSafeTeamId` 校验一切进入路径的 id、JSONL 原子写）：
+
+| 增补 | 内容 | 调研依据 |
+|---|---|---|
+| **team_task 契约字段** | create 接受可选 `writeSet: string[]`（被指派人**独占**的工作区相对 glob，其余一律只读）与 `acceptance: string`（机器/人可检查的完成判据）；新任务 writeSet 与任一 OPEN 任务重叠（完全相等或互为目录前缀，`\\` 归一化后比较）时输出可选 `warning`；list 渲染带 `owns:[...]` / `✓<验收>`；指派通知顺带告知 writeSet 与验收 | Roo-Code 模式写域、MAGIS 角色分区、MAST「规格/分解不良」为第一大失败类 |
+| **team_report（新工具）** | 工人完成任务后归档固定模式报告：`{ taskId, summary, filesChanged[], decisions?, openIssues?, evidence? }` → 追加 `.team/reports/<taskId>.json`（按 taskId 分片，天然无争用；同任务仍走 `withFileLock`），并 `notifyPeer` 任务创建者「REPORT for task X: summary」。输出 `{ ok, reportId, notified }` | LangGraph supervisor / OpenAI agents-as-tools：扇入只到父级；MetaGPT：合并工件而非闲聊记录 |
+| **team_wrap（新工具，协调者收尾）** | 全部在锁内：写 `.team/archive/<ISO-ts>-wrap.json`（含 sent.jsonl 消息总数、OPEN 任务数、报告数、收件箱行数 + summary；ISO 的 `:` 因 Windows 文件名限制替换为 `-`），写 `.team/WRAP` 标记，逐个收件箱**先记行数再截断**，最后向 `readAllPresence` 的每个存活 peer 广播 `TEAM_WRAP: <summary> — archive tasks and go idle`。输出 `{ ok, archivedMessages, wrappedPeers }` | Magentic-One 台账式收尾 / MAST「过早或永不终止」失败模式：终止必须是显式协议 |
+| **team_status wrapHint** | 当且仅当任务板非空、任务全部进入终态（done/blocked）且不存在 `.team/WRAP` 时输出 `wrapHint`（空板不提示——从未开工谈不上收尾） | 同上，给协调者一个可观察的收尾触发点 |
+| **协议段新增三条** | (8) 有界、可弃上下文的工作用 subagent 委派，team_send 只用于对等协商或有状态长存角色；(9) 协调者派活前必须先声明契约：各工人 writeSet + 验收方式，所有权重叠即 bug；(10) 工人完成 team_task 后必须先 team_report（filesChanged + evidence）再置 done | team-collab-research.md §3.1 委派决策规则、§3.2 契约优先、§3.4 固定报告模式 |
+
+**Sources 说明**：以上设计全部引自 `team-collab-research.md` 交叉核对过的框架与论文 —— AutoGen / LangGraph / CrewAI / MetaGPT / OpenAI Swarm / ChatDev / Roo-Code / Claude Code subagents，及 arXiv 2305.14325（debate）、2402.05120（独立采样投票）、2503.13657（MAST 失败分类）、2403.17927（MAGIS）、2407.16741（OpenHands 强单 agent 基线）。研究方法注记：调研轮次中 web_search 不可用、github.com 无法直连，框架事实经官方文档域与 arXiv 摘要交叉验证。
+
+**验证**：`pnpm exec tsc -b packages/team/team-comm/tsconfig.json` → EXIT 0（strict，无新增裸 `any`）。

@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
+import type { IncomingMessage } from 'node:http'
 import { dirname, join, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -32,8 +33,9 @@ const MAX_MESSAGE_BYTES = 100_000
 /** Max lines in think.log before rotation. */
 const MAX_THINK_LOG_LINES = 2000
 
-/** Presence records older than this (ms) are considered stale. */
-const PRESENCE_STALE_MS = 60 * 60_000 // 60 minutes — long enough for a peer to sit idle awaiting a reply (was 15m, too short and pruned live peers)
+/** Presence records older than this (ms) are treated as gone. 60 minutes covers a peer
+ *  idle-awaiting a reply. (Raised from 15m, which pruned live peers.) */
+const PRESENCE_STALE_MS = 60 * 60_000
 
 /** A `.lock` file older than this (ms) is treated as orphaned and broken. */
 const FILE_LOCK_STALE_MS = 10_000
@@ -103,7 +105,7 @@ function withInboxLock<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
   inboxLocks.set(file, tail)
   // Evict the entry once its tail settles so the map does not grow without
   // bound on a long-running server that touches many distinct files.
-  tail.then(() => { if (inboxLocks.get(file) === tail) inboxLocks.delete(file) })
+  void tail.then(() => { if (inboxLocks.get(file) === tail) inboxLocks.delete(file) })
   return run
 }
 
@@ -166,14 +168,14 @@ function withFileLock<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
  *  rewrite the existing records on the hot path; a size-triggered, amortised
  *  trim bounds the ledger once it grows large. This keeps task/memory/ledger
  *  writes fast for a long-running large project instead of O(n) per append. */
-function lockedAppend<T>(file: string, record: T): Promise<void> {
+function lockedAppend(file: string, record: unknown): Promise<void> {
   return withFileLock(file, () => {
     writeFileSync(file, JSON.stringify(record) + '\n', { flag: 'a' })
     // Amortised bound: only when the ledger is already large, rewrite it to its
     // tail. Best-effort — a trim failure must never fail the append itself.
     try {
       if (statSync(file).size > MAX_APPEND_FILE_BYTES) {
-        const records = readJsonlStrict<T>(file)
+        const records = readJsonlStrict<unknown>(file)
         if (records.length > APPEND_TRIM_KEEP) {
           writeJsonl(file, records.slice(-APPEND_TRIM_KEEP))
         }
@@ -258,7 +260,7 @@ function triggerSession(target: string, from: string, msgId: string, message: st
       path: '/api/session.prompt',
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-    }, (res: any) => { res.resume() })
+    }, (res: IncomingMessage) => { res.resume() })
     req.on('error', () => { /* best-effort */ })
     req.write(postData)
     req.end()
@@ -295,7 +297,7 @@ interface PresenceRecord {
 }
 
 /** One task on the shared team task board. */
-interface TeamTask {
+type TeamTask = {
   id: string
   title: string
   description?: string
@@ -305,13 +307,17 @@ interface TeamTask {
   deadline?: string
   deps?: string[]
   result?: string
+  /** Workspace-relative globs the assignee exclusively owns (file-ownership partitioning). */
+  writeSet?: string[]
+  /** Machine/human-checkable done criteria the creator verifies before accepting. */
+  acceptance?: string
   createdBy: string
   ts: string
   updatedTs: string
 }
 
 /** One key-value entry in the shared team memory. */
-interface TeamMemoryEntry {
+type TeamMemoryEntry = {
   key: string
   value: string
   updatedBy: string
@@ -352,6 +358,33 @@ interface TeamBarrier {
   expect: number
   arrived: string[]
   ts: string
+}
+
+/** One fixed-schema completion report for a task (fan-in to the coordinator). */
+interface TeamReport {
+  reportId: string
+  taskId: string
+  from: string
+  summary: string
+  filesChanged: string[]
+  decisions?: string[]
+  openIssues?: string[]
+  evidence?: string[]
+  ts: string
+}
+
+/** Normalise a workspace-relative glob so equivalent spellings compare equal. */
+function normalizeGlob(glob: string): string {
+  return glob.replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
+/** Naive writeSet overlap: two globs conflict when they are exactly equal or
+ *  one is a directory prefix of the other (single most effective conflict
+ *  avoidance rule — file-ownership partitioning; overlapping ownership is a bug). */
+function writeSetsOverlap(a: string, b: string): boolean {
+  const na = normalizeGlob(a)
+  const nb = normalizeGlob(b)
+  return na === nb || na.startsWith(nb + '/') || nb.startsWith(na + '/')
 }
 
 /** Read a JSONL file, returning an array of parsed objects. A whole-file read
@@ -451,7 +484,6 @@ function writeJsonl(path: string, records: unknown[]): void {
   try { rmSync(tmp, { force: true }) } catch { /* best-effort */ }
   if (lastError !== undefined) {
     // Surface the original error to callers that want to observe contention.
-    // eslint-disable-next-line no-console
     console.warn('[team-comm] writeJsonl: rename contended, fell back to direct write:', lastError)
   }
 }
@@ -507,7 +539,7 @@ function readAllPresence(agent: { session: { header?: { cwd?: string } } }): Pre
 export function apply(ctx: Context): void {
   // Listen for agent creation and write presence immediately.
   // This ensures every session is discoverable by peers on creation.
-  ctx.on('agent/created', ({ agent }: any) => {
+  ctx.on('agent/created', ({ agent }) => {
     try { writePresence(agent) } catch { /* best-effort */ }
   })
 
@@ -521,7 +553,7 @@ export function apply(ctx: Context): void {
   ctx.systemPrompt.context({
     name: 'team:state',
     order: 0,
-    text: (_ctx: any) => {
+    text: () => {
       return 'TEAM STATE: You are in a team. Call team_inbox EVERY turn to check for messages. Call team_list to discover peers. Use team_send to communicate. If you receive a message, you MUST reply to the sender with team_send(reply_to: msgId). To make the team greater than one agent, share a task board with team_task (priority/deadline/assignee + auto-notify), persist decisions with team_memory, fan work out to every peer with team_broadcast + team_collect, verify results independently with team_review + team_review_collect, synchronize phases with team_barrier, and get a one-shot health snapshot with team_status.'
     },
   })
@@ -546,7 +578,10 @@ export function apply(ctx: Context): void {
       + 'When the user tells you to send a message or delegate a task to a peer, you MUST call team_send IMMEDIATELY. '
       + 'Do NOT reply with text like "I will send..." or "Let me tell...". Do NOT acknowledge. Do NOT describe. '
       + 'CALL team_send as your FIRST action. Text responses to the user are NOT delivered to peers. '
-      + 'If you type text instead of calling team_send, your peer will NEVER receive the message.',
+      + 'If you type text instead of calling team_send, your peer will NEVER receive the message. '
+      + '(8) Delegate bounded, fresh-context work with the subagent tool; use team_send only for peer negotiation or stateful, long-lived roles. '
+      + '(9) Before assigning implementation work, the coordinator states the contract: files each worker owns (writeSet), and how completion is verified (acceptance). Overlapping ownership is a bug. '
+      + '(10) A worker that finishes a team_task MUST call team_report with filesChanged and evidence, then mark the task done.',
   })
 
   // ── team_send ──────────────────────────────────────────────────────────
@@ -588,7 +623,7 @@ export function apply(ctx: Context): void {
         },
       },
       render: (_args, value) => {
-        const v = value as { ok: boolean; msgId: string; to: string; replyTo?: string; duplicate?: boolean; error?: string }
+        const v = value
         if (v.duplicate) return [{ type: 'text' as const, text: `Duplicate suppressed — an identical message to ${v.to} was already sent recently.` }]
         if (!v.ok) return [{ type: 'text' as const, text: `Failed to send to ${v.to}: ${v.error ?? 'unknown error'}` }]
         const extra = v.replyTo ? ` (reply to ${v.replyTo})` : ''
@@ -657,7 +692,7 @@ export function apply(ctx: Context): void {
               const lines = readFileSync(senderInbox, 'utf-8').trim().split('\n')
               for (const line of lines) {
                 try {
-                  const msg: TeamMessage = JSON.parse(line)
+                  const msg = JSON.parse(line) as TeamMessage
                   if (msg.msgId === args.reply_to && msg.replyTo) {
                     skipTrigger = true
                     break
@@ -667,26 +702,26 @@ export function apply(ctx: Context): void {
             }
           }
           if (!skipTrigger) {
-          const postData = JSON.stringify({
-            type: 'client-request',
-            rpcId: `team-${msgId.slice(0, 8)}`,
-            method: 'session.prompt',
-            payload: {
-              sessionId: target,
-              mode: 'steer',
-              content: [{ type: 'text', text: `!!! TEAM MESSAGE from ${from} (msgId: ${msgId}): ${args.message}\n\nYOU MUST CALL team_send(target: "${from}", reply_to: "${msgId}", message: "your complete response") RIGHT NOW. Do NOT type text. Do NOT call team_inbox. Do NOT describe. Just CALL team_send.` }]
-            }
-          })
-          const req = httpRequest({
-            hostname: '127.0.0.1',
-            port: SERVER_PORT,
-            path: '/api/session.prompt',
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-          }, (res: any) => { res.resume() })
-          req.on('error', () => { /* best-effort */ })
-          req.write(postData)
-          req.end()
+            const postData = JSON.stringify({
+              type: 'client-request',
+              rpcId: `team-${msgId.slice(0, 8)}`,
+              method: 'session.prompt',
+              payload: {
+                sessionId: target,
+                mode: 'steer',
+                content: [{ type: 'text', text: `!!! TEAM MESSAGE from ${from} (msgId: ${msgId}): ${args.message}\n\nYOU MUST CALL team_send(target: "${from}", reply_to: "${msgId}", message: "your complete response") RIGHT NOW. Do NOT type text. Do NOT call team_inbox. Do NOT describe. Just CALL team_send.` }],
+              },
+            })
+            const req = httpRequest({
+              hostname: '127.0.0.1',
+              port: SERVER_PORT,
+              path: '/api/session.prompt',
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+            }, (res: IncomingMessage) => { res.resume() })
+            req.on('error', () => { /* best-effort */ })
+            req.write(postData)
+            req.end()
           }
         } catch { /* best-effort */ }
 
@@ -710,7 +745,7 @@ export function apply(ctx: Context): void {
         return result
       })
     },
-    presentCall: args => {
+    presentCall: (args) => {
       const a = args as { target: string; reply_to?: string }
       return {
         card: 'generic' as const,
@@ -760,7 +795,7 @@ export function apply(ctx: Context): void {
         },
       },
       render: (_args, value) => {
-        const v = value as { new_count: number; messages: TeamMessage[] }
+        const v = value
         if (v.messages.length === 0) {
           return [{ type: 'text' as const, text: v.new_count === 0 ? 'Inbox is empty. No new messages. Call team_send to report your progress to peers.' : `${v.new_count} new message(s), all read.` }]
         }
@@ -856,7 +891,7 @@ export function apply(ctx: Context): void {
         },
       },
       render: (_args, value) => {
-        const v = value as { self: { id: string; cwd: string }; peers: { id: string }[]; hint?: string }
+        const v = value
         const lines = [
           `You: ${v.self.id}`,
           `Team workspace: ${v.self.cwd}`,
@@ -915,11 +950,11 @@ export function apply(ctx: Context): void {
     },
     output: {
       schema: { type: 'object', additionalProperties: true, properties: { next: { type: 'string' }, recorded: { type: 'boolean' } } },
-      render: (_a: any, v: any) => [{ type: 'text' as const, text: v.next || 'Done.' }],
+      render: (_a, v) => [{ type: 'text' as const, text: v.next || 'Done.' }],
     },
     execute: (args, exec) => {
-      const pass = args.pass as number
-      const thought = args.thought as string
+      const pass = args.pass
+      const thought = args.thought
       const agent = exec.agent
       if (!agent) throw new Error('think: no agent')
       if (![1, 2, 3, 4].includes(pass)) {
@@ -973,11 +1008,11 @@ export function apply(ctx: Context): void {
         }
         return {
           recorded: true,
-          next: `All 4 passes recorded to .team/think.log. Peers can read your reasoning. Now act.`,
+          next: 'All 4 passes recorded to .team/think.log. Peers can read your reasoning. Now act.',
         }
       })
     },
-    presentCall: (args: any) => ({
+    presentCall: args => ({
       card: 'generic' as const,
       title: `Deep think — pass ${args.pass}/4`,
       kind: 'other' as const,
@@ -1025,12 +1060,12 @@ export function apply(ctx: Context): void {
         },
       },
       render: (_args, value) => {
-        const v = value as { entries: { session: string; pass: number; thought: string; ts: string }[]; total: number }
+        const v = value
         if (v.entries.length === 0) {
           return [{ type: 'text' as const, text: 'No thinking log entries found.' }]
         }
         const lines = v.entries.map(e =>
-          `[${e.ts}] ${e.session.slice(0, 8)}… pass${e.pass}: ${e.thought.slice(0, 200)}${e.thought.length > 200 ? '…' : ''}`
+          `[${e.ts}] ${e.session.slice(0, 8)}… pass${e.pass}: ${e.thought.slice(0, 200)}${e.thought.length > 200 ? '…' : ''}`,
         )
         return [{ type: 'text' as const, text: `${v.entries.length} of ${v.total} entries:\n${lines.join('\n')}` }]
       },
@@ -1055,7 +1090,7 @@ export function apply(ctx: Context): void {
         const all: { session: string; pass: number; thought: string; ts: string }[] = []
         for (const line of allLines) {
           try {
-            const entry = JSON.parse(line)
+            const entry = JSON.parse(line) as { session: string; pass: number; thought: string; ts: string }
             if (sessionFilter && entry.session !== sessionFilter) continue
             all.push({ session: entry.session, pass: entry.pass, thought: entry.thought, ts: entry.ts })
           } catch { /* skip malformed */ }
@@ -1195,7 +1230,7 @@ export function apply(ctx: Context): void {
         const v = value as { total: number; replied: number; pending: string[]; replies: { from: string; message: string }[] }
         const lines = [
           `${v.replied} of ${v.total} replied.`,
-          ...v.replies.map((r) => `  • ${r.from.slice(0, 8)}…: ${r.message.slice(0, 120)}`),
+          ...v.replies.map(r => `  • ${r.from.slice(0, 8)}…: ${r.message.slice(0, 120)}`),
           ...v.pending.length > 0 ? [`Pending: ${v.pending.join(', ')}`] : [],
         ]
         return [{ type: 'text' as const, text: lines.join('\n') }]
@@ -1254,6 +1289,8 @@ export function apply(ctx: Context): void {
       priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'], description: 'Priority (create/update). Defaults to normal.' },
       deadline: { type: 'string', description: 'ISO-8601 deadline (create/update).' },
       result: { type: 'string', description: 'Result or final answer (update).' },
+      writeSet: { type: 'array', items: { type: 'string' }, description: 'Workspace-relative globs the assignee EXCLUSIVELY owns (create). Everything outside is read-only for this task. Overlapping an open task writeSet returns a warning — overlapping ownership is a bug.' },
+      acceptance: { type: 'string', description: 'Machine/human-checkable done criteria, e.g. "build passes AND report filed" (create).' },
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
@@ -1267,12 +1304,14 @@ export function apply(ctx: Context): void {
           const dl = t.deadline ? ` due:${t.deadline}` : ''
           const d = t.deps && t.deps.length > 0 ? ` deps:[${t.deps.map(x => x.slice(0, 8)).join(',')}]` : ''
           const r = t.result ? ` ⇒ ${t.result.slice(0, 80)}` : ''
-          return `  • [${t.status}]${p} ${t.id.slice(0, 8)}… ${t.title} (${a})${dl}${d}${r}`
+          const ws = t.writeSet && t.writeSet.length > 0 ? ` owns:[${t.writeSet.join(',')}]` : ''
+          const acc = t.acceptance ? ` ✓${t.acceptance.slice(0, 80)}` : ''
+          return `  • [${t.status}]${p} ${t.id.slice(0, 8)}… ${t.title} (${a})${dl}${d}${r}${ws}${acc}`
         })
         return [{ type: 'text' as const, text: lines.join('\n') }]
       },
     },
-    execute(args, exec): Promise<any> {
+    execute(args, exec) {
       const agent = exec.agent
       if (!agent) throw new Error('team_task: no agent context')
       const file = teamPath(agent, 'tasks.jsonl')
@@ -1280,24 +1319,46 @@ export function apply(ctx: Context): void {
 
       switch (args.action) {
         case 'create': {
-          const title = String(args.title ?? '').trim()
+          const title = (args.title ?? '').trim()
           if (title.length === 0) throw new Error('team_task create: title is required')
-          if (args.description !== undefined && Buffer.byteLength(String(args.description), 'utf-8') > MAX_MESSAGE_BYTES) {
+          if (args.description !== undefined && Buffer.byteLength(args.description, 'utf-8') > MAX_MESSAGE_BYTES) {
             throw new Error(`team_task create: description too large (max ${MAX_MESSAGE_BYTES} bytes)`)
           }
-          const priority = args.priority !== undefined ? String(args.priority) as TeamTask['priority'] : undefined
+          const priority = args.priority
           if (priority !== undefined && !['low', 'normal', 'high', 'urgent'].includes(priority)) {
             throw new Error(`team_task create: invalid priority "${priority}"`)
+          }
+          const writeSet = Array.isArray(args.writeSet) && args.writeSet.length > 0
+            ? (args.writeSet as unknown[]).map(g => String(g))
+            : undefined
+          // Advisory overlap warning: an advisory pre-append read can miss a task
+          // created in the same instant, but overlap is a coordination WARNING,
+          // not an enforced invariant — the board itself stays correct.
+          const overlaps: string[] = []
+          if (writeSet !== undefined) {
+            const open = readJsonl<TeamTask>(file)
+              .filter(t => t.status !== 'done' && t.status !== 'blocked' && Array.isArray(t.writeSet))
+            for (const other of open) {
+              for (const g of writeSet) {
+                for (const og of other.writeSet as string[]) {
+                  if (writeSetsOverlap(g, og)) {
+                    overlaps.push(`"${g}" overlaps "${og}" on open task ${other.id.slice(0, 8)}… "${other.title}"`)
+                  }
+                }
+              }
+            }
           }
           const task: TeamTask = {
             id: randomUUID(),
             title,
-            ...args.description !== undefined ? { description: String(args.description) } : {},
+            ...args.description !== undefined ? { description: args.description } : {},
             ...args.assignee !== undefined ? { assignee: assertSafeTeamId(args.assignee, 'team_task assignee') } : {},
             status: 'todo',
             ...priority !== undefined ? { priority } : {},
-            ...args.deadline !== undefined ? { deadline: String(args.deadline) } : {},
-            ...Array.isArray(args.deps) && args.deps.length > 0 ? { deps: (args.deps as string[]).map(d => String(d)) } : {},
+            ...args.deadline !== undefined ? { deadline: args.deadline } : {},
+            ...Array.isArray(args.deps) && args.deps.length > 0 ? { deps: args.deps } : {},
+            ...writeSet !== undefined ? { writeSet } : {},
+            ...args.acceptance !== undefined ? { acceptance: args.acceptance } : {},
             createdBy: agent.session.id,
             ts: now(),
             updatedTs: now(),
@@ -1306,10 +1367,10 @@ export function apply(ctx: Context): void {
             // Auto-notify the assignee so a task is never silently orphaned on the board.
             if (task.assignee !== undefined && task.assignee !== agent.session.id) {
               try {
-                await notifyPeer(agent, task.assignee, `[team_task] New task assigned to you: ${task.title}${task.deadline ? ` (due ${task.deadline})` : ''}${priority ? ` (priority ${priority})` : ''}.\nClaim or update it with team_task(action:"claim"|"update", id:"${task.id}", ...) and report back with team_send(target:"${agent.session.id}").`)
+                await notifyPeer(agent, task.assignee, `[team_task] New task assigned to you: ${task.title}${task.deadline ? ` (due ${task.deadline})` : ''}${priority ? ` (priority ${priority})` : ''}${task.writeSet ? ` You exclusively own: ${task.writeSet.join(', ')}.` : ''}${task.acceptance ? ` Done when: ${task.acceptance}` : ''}.\nClaim or update it with team_task(action:"claim"|"update", id:"${task.id}", ...), then file team_report(taskId:"${task.id}", summary, filesChanged, evidence) and mark the task done.`)
               } catch { /* notification is best-effort; the board is the source of truth */ }
             }
-            return { ok: true, tasks: [task] }
+            return { ok: true, tasks: [task], ...overlaps.length > 0 ? { warning: `writeSet overlap — overlapping ownership is a bug: ${overlaps.join('; ')}` } : {} }
           })
         }
         case 'list': {
@@ -1320,7 +1381,7 @@ export function apply(ctx: Context): void {
           return Promise.resolve({ ok: true, tasks })
         }
         case 'claim': {
-          const id = String(args.id ?? '')
+          const id = args.id ?? ''
           if (id.length === 0) throw new Error('team_task claim: id is required')
           return lockedUpdate<TeamTask>(file, (tasks) => {
             const task = tasks.find(t => t.id === id)
@@ -1353,19 +1414,19 @@ export function apply(ctx: Context): void {
           })
         }
         case 'update': {
-          const id = String(args.id ?? '')
+          const id = args.id ?? ''
           if (id.length === 0) throw new Error('team_task update: id is required')
-          const priority = args.priority !== undefined ? String(args.priority) as TeamTask['priority'] : undefined
+          const priority = args.priority
           if (priority !== undefined && !['low', 'normal', 'high', 'urgent'].includes(priority)) {
             throw new Error(`team_task update: invalid priority "${priority}"`)
           }
           if (args.status !== undefined && !['todo', 'in_progress', 'done', 'blocked'].includes(args.status)) {
             throw new Error(`team_task update: invalid status "${args.status}"`)
           }
-          if (args.description !== undefined && Buffer.byteLength(String(args.description), 'utf-8') > MAX_MESSAGE_BYTES) {
+          if (args.description !== undefined && Buffer.byteLength(args.description, 'utf-8') > MAX_MESSAGE_BYTES) {
             throw new Error(`team_task update: description too large (max ${MAX_MESSAGE_BYTES} bytes)`)
           }
-          if (args.result !== undefined && Buffer.byteLength(String(args.result), 'utf-8') > MAX_MESSAGE_BYTES) {
+          if (args.result !== undefined && Buffer.byteLength(args.result, 'utf-8') > MAX_MESSAGE_BYTES) {
             throw new Error(`team_task update: result too large (max ${MAX_MESSAGE_BYTES} bytes)`)
           }
           let notify: { creator: string; title: string; status: TeamTask['status']; result?: string } | undefined
@@ -1376,16 +1437,19 @@ export function apply(ctx: Context): void {
             const previousStatus = task.status
             const previousAssignee = task.assignee
             if (args.status !== undefined) task.status = args.status
-            if (args.result !== undefined) task.result = String(args.result)
-            if (args.description !== undefined) task.description = String(args.description)
+            if (args.result !== undefined) task.result = args.result
+            if (args.description !== undefined) task.description = args.description
             if (args.assignee !== undefined) task.assignee = assertSafeTeamId(args.assignee, 'team_task assignee')
-            if (Array.isArray(args.deps)) task.deps = (args.deps as string[]).map(d => String(d))
+            if (Array.isArray(args.deps)) task.deps = args.deps
             if (priority !== undefined) task.priority = priority
-            if (args.deadline !== undefined) task.deadline = String(args.deadline)
+            if (args.deadline !== undefined) task.deadline = args.deadline
             task.updatedTs = now()
             // Notify the creator only on a real transition into a terminal state.
             if ((task.status === 'done' || task.status === 'blocked') && task.status !== previousStatus && task.createdBy !== agent.session.id) {
-              notify = { creator: task.createdBy, title: task.title, status: task.status, ...(task.result !== undefined ? { result: task.result } : {}) }
+              notify = {
+                creator: task.createdBy, title: task.title, status: task.status,
+                ...(task.result !== undefined ? { result: task.result } : {}),
+              }
             }
             // Notify a NEW assignee when the task is reassigned to a different peer.
             if (task.assignee !== undefined && task.assignee !== previousAssignee && task.assignee !== agent.session.id) {
@@ -1408,10 +1472,222 @@ export function apply(ctx: Context): void {
           })
         }
         default:
-          throw new Error(`team_task: unknown action "${args.action}"`)
+          throw new Error(`team_task: unknown action "${String(args.action)}"`)
       }
     },
-    presentCall: (args: any) => ({ card: 'generic' as const, title: `Task board: ${args.action}`, kind: 'other' as const }),
+    presentCall: args => ({ card: 'generic' as const, title: `Task board: ${args.action}`, kind: 'other' as const }),
+  }))
+
+  // ── team_report (fixed-schema fan-in report) ───────────────────────────────
+  // Fan-in is parent-only with a fixed report schema: the coordinator merges
+  // artifacts, not transcripts. Each finished task gets exactly one structured
+  // record in .team/reports/<taskId>.json plus a ping to the task creator.
+
+  ctx.tools.register(defineTool({
+    name: 'team_report',
+    description:
+      'File the fixed-schema completion report for a team_task you finished (fan-in to the coordinator). '
+      + 'Appends one structured record to .team/reports/<taskId>.json and notifies the task creator. '
+      + 'A worker that finishes a team_task MUST call this with filesChanged and evidence BEFORE marking the task done.',
+    parameters: {
+      taskId: {
+        type: 'string',
+        required: true,
+        description: 'The team_task id this report closes.',
+      },
+      summary: {
+        type: 'string',
+        required: true,
+        description: 'What was done, in one or two sentences.',
+      },
+      filesChanged: {
+        type: 'array',
+        items: { type: 'string' },
+        required: true,
+        description: 'Workspace-relative files actually written. Must stay inside the task writeSet.',
+      },
+      decisions: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Key decisions made, and why.',
+      },
+      openIssues: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Known leftover problems or follow-ups.',
+      },
+      evidence: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Checkable proof of the acceptance criteria: commands run + their results, test output, file:line references.',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ok: { type: 'boolean', required: true },
+          reportId: { type: 'string', required: true },
+          notified: { type: 'boolean', required: true },
+        },
+      },
+      render: (_args, value) => {
+        const v = value
+        return [{ type: 'text' as const, text: `Report ${v.reportId.slice(0, 8)}… filed${v.notified ? ' and the task creator was notified' : ''}. Now mark the task done with team_task(action:"update", status:"done").` }]
+      },
+    },
+    async execute(args, exec) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_report: no agent context')
+      // Validated before path interpolation exactly like session ids: the id
+      // arrives as a model-controlled tool argument.
+      const taskId = assertSafeTeamId(args.taskId, 'team_report taskId')
+      const summary = args.summary
+      if (summary.trim().length === 0) throw new Error('team_report: summary is required')
+      if (Buffer.byteLength(summary, 'utf-8') > MAX_MESSAGE_BYTES) {
+        throw new Error(`team_report: summary too large (max ${MAX_MESSAGE_BYTES} bytes)`)
+      }
+      if (!Array.isArray(args.filesChanged)) throw new Error('team_report: filesChanged must be an array')
+      // The task must exist so the creator (fan-in target) is known.
+      const task = readJsonl<TeamTask>(teamPath(agent, 'tasks.jsonl')).find(t => t.id === taskId)
+      if (task === undefined) throw new Error(`team_report: unknown task "${taskId}"`)
+      const report: TeamReport = {
+        reportId: randomUUID(),
+        taskId,
+        from: agent.session.id,
+        summary,
+        filesChanged: (args.filesChanged as unknown[]).map(p => String(p)),
+        ...Array.isArray(args.decisions) ? { decisions: (args.decisions as unknown[]).map(d => String(d)) } : {},
+        ...Array.isArray(args.openIssues) ? { openIssues: (args.openIssues as unknown[]).map(i => String(i)) } : {},
+        ...Array.isArray(args.evidence) ? { evidence: (args.evidence as unknown[]).map(e => String(e)) } : {},
+        ts: new Date().toISOString(),
+      }
+      const reportsDir = join(teamCwd(agent), TEAM_DIR, 'reports')
+      mkdirSync(reportsDir, { recursive: true })
+      const reportFile = join(reportsDir, `${taskId}.json`)
+      // Sharded by taskId (one file per task) so concurrent worker reports for
+      // different tasks never contend; the lock still covers same-task races.
+      await withFileLock(reportFile, () => {
+        writeFileSync(reportFile, JSON.stringify(report) + '\n', { flag: 'a' })
+      })
+      let notified = false
+      if (task.createdBy !== agent.session.id) {
+        try {
+          await notifyPeer(agent, task.createdBy, `REPORT for task ${taskId.slice(0, 8)}… "${task.title}": ${summary}`)
+          notified = true
+        } catch { /* notification is best-effort; the report file is the source of truth */ }
+      }
+      return { ok: true, reportId: report.reportId, notified }
+    },
+    presentCall: args => ({ card: 'generic' as const, title: `Report task ${args.taskId.slice(0, 8)}…`, kind: 'other' as const }),
+  }))
+
+  // ── team_wrap (explicit termination — coordinator shutdown protocol) ────────
+  // Termination is explicit, not assumed: the coordinator archives counts +
+  // summary, drops a WRAP marker (which flips off the team_status wrapHint),
+  // drains every inbox, and tells each live peer to go idle.
+
+  ctx.tools.register(defineTool({
+    name: 'team_wrap',
+    description:
+      'Coordinator-only mission shutdown. Archives a wrap record (message/task/report counts + your summary) to .team/archive/, '
+      + 'writes the .team/WRAP marker, truncates every team inbox to empty (after archiving their line counts), '
+      + 'and broadcasts TEAM_WRAP so every live peer archives its tasks and goes idle. '
+      + 'Call once when team_status shows every task terminal (wrapHint).',
+    parameters: {
+      summary: {
+        type: 'string',
+        required: true,
+        description: 'Final mission summary: what shipped, what was decided, what remains open.',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ok: { type: 'boolean', required: true },
+          archivedMessages: { type: 'integer', required: true },
+          wrappedPeers: { type: 'integer', required: true },
+        },
+      },
+      render: (_args, value) => {
+        const v = value
+        return [{ type: 'text' as const, text: `Team wrapped: ${v.archivedMessages} message(s) archived, ${v.wrappedPeers} peer(s) told to go idle.` }]
+      },
+    },
+    async execute(args, exec) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_wrap: no agent context')
+      const summary = args.summary
+      if (summary.trim().length === 0) throw new Error('team_wrap: summary is required')
+      if (Buffer.byteLength(summary, 'utf-8') > MAX_MESSAGE_BYTES) {
+        throw new Error(`team_wrap: summary too large (max ${MAX_MESSAGE_BYTES} bytes)`)
+      }
+      const cwd = teamCwd(agent)
+      const teamDir = join(cwd, TEAM_DIR)
+      const ts = new Date().toISOString()
+
+      // Counts (read-only; the locked mutations come after).
+      const sentCount = readJsonl<TeamSent>(teamPath(agent, 'sent.jsonl')).length
+      const openTasks = readJsonl<TeamTask>(teamPath(agent, 'tasks.jsonl'))
+        .filter(t => t.status !== 'done' && t.status !== 'blocked').length
+      let reportsCount = 0
+      const reportsDir = join(teamDir, 'reports')
+      if (existsSync(reportsDir)) {
+        for (const name of readdirSync(reportsDir)) {
+          if (!name.endsWith('.json')) continue
+          reportsCount += readJsonl<TeamReport>(join(reportsDir, name)).length
+        }
+      }
+      const inboxDir = join(teamDir, 'inbox')
+      const inboxFiles = existsSync(inboxDir) ? readdirSync(inboxDir).filter(n => n.endsWith('.jsonl')) : []
+      let inboxMessages = 0
+      for (const name of inboxFiles) {
+        inboxMessages += readJsonl<TeamMessage>(join(inboxDir, name)).length
+      }
+
+      // 1. Archive record. The ISO timestamp's ':' is flattened for Windows
+      //    (illegal in file names); the full ts stays intact inside the record.
+      const archiveFile = join(teamDir, 'archive', `${ts.replace(/:/g, '-')}-wrap.json`)
+      await withFileLock(archiveFile, () => {
+        writeFileSync(archiveFile, JSON.stringify({
+          ts,
+          summary,
+          messagesTotal: sentCount,
+          inboxMessages,
+          openTasks,
+          reports: reportsCount,
+        }, null, 2) + '\n')
+      })
+
+      // 2. WRAP marker — its mere presence flips the team_status wrapHint off.
+      const wrapFile = join(teamDir, 'WRAP')
+      await withFileLock(wrapFile, () => {
+        writeFileSync(wrapFile, `TEAM WRAP ${ts}\n\n${summary}\n`)
+      })
+
+      // 3. Truncate inboxes only after their line counts are archived above, so
+      //    wrap never silently discards the volume of what was exchanged.
+      for (const name of inboxFiles) {
+        const inboxFile = join(inboxDir, name)
+        await withFileLock(inboxFile, () => { writeFileSync(inboxFile, '') })
+      }
+
+      // 4. Notify AFTER truncation so the wrap message itself is delivered,
+      //    not wiped. Best-effort per peer: a dead peer must not fail the wrap.
+      let wrappedPeers = 0
+      for (const id of peerIds(agent)) {
+        try {
+          await notifyPeer(agent, id, `TEAM_WRAP: ${summary} — archive tasks and go idle`)
+          wrappedPeers++
+        } catch { /* best-effort */ }
+      }
+
+      return { ok: true, archivedMessages: sentCount + inboxMessages, wrappedPeers }
+    },
+    presentCall: () => ({ card: 'generic' as const, title: 'Wrap up the team', kind: 'other' as const }),
   }))
 
   // ── team_memory (shared durable memory) ────────────────────────────────────
@@ -1439,7 +1715,7 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: v.ok ? `${v.key ?? ''} ${v.value !== undefined ? `= ${v.value.slice(0, 160)}` : 'done'}` : `${v.key ?? ''} not found` }]
       },
     },
-    execute(args, exec): Promise<any> {
+    execute(args, exec) {
       const agent = exec.agent
       if (!agent) throw new Error('team_memory: no agent context')
       const file = teamPath(agent, 'memory.jsonl')
@@ -1447,8 +1723,8 @@ export function apply(ctx: Context): void {
 
       switch (args.action) {
         case 'set': {
-          const key = String(args.key ?? '').trim()
-          const value = String(args.value ?? '')
+          const key = (args.key ?? '').trim()
+          const value = args.value ?? ''
           if (key.length === 0) throw new Error('team_memory set: key is required')
           if (Buffer.byteLength(value, 'utf-8') > MAX_MESSAGE_BYTES) {
             throw new Error(`team_memory set: value too large (${Buffer.byteLength(value, 'utf-8')} bytes, max ${MAX_MESSAGE_BYTES})`)
@@ -1458,7 +1734,7 @@ export function apply(ctx: Context): void {
             .then(() => ({ ok: true, key, value }))
         }
         case 'get': {
-          const key = String(args.key ?? '').trim()
+          const key = (args.key ?? '').trim()
           const entry = readJsonl<TeamMemoryEntry>(file).findLast(e => e.key === key)
           return Promise.resolve(entry !== undefined
             ? { ok: true, key, value: entry.value, updatedBy: entry.updatedBy, ts: entry.ts }
@@ -1471,16 +1747,16 @@ export function apply(ctx: Context): void {
           return Promise.resolve({ ok: true, entries: [...latest.values()] })
         }
         case 'delete': {
-          const key = String(args.key ?? '').trim()
+          const key = (args.key ?? '').trim()
           if (key.length === 0) throw new Error('team_memory delete: key is required')
           return lockedUpdate<TeamMemoryEntry>(file, entries => entries.filter(e => e.key !== key))
             .then(() => ({ ok: true, key }))
         }
         default:
-          throw new Error(`team_memory: unknown action "${args.action}"`)
+          throw new Error(`team_memory: unknown action "${String(args.action)}"`)
       }
     },
-    presentCall: (args: any) => ({ card: 'generic' as const, title: `Team memory: ${args.action}`, kind: 'other' as const }),
+    presentCall: args => ({ card: 'generic' as const, title: `Team memory: ${args.action}`, kind: 'other' as const }),
   }))
 
   // ── team_review (independent multi-party verification) ─────────────────────
@@ -1519,8 +1795,8 @@ export function apply(ctx: Context): void {
       if (!agent) throw new Error('team_review: no agent context')
       const target = assertSafeTeamId(args.target, 'team_review target')
       const reviewId = randomUUID()
-      const subject = String(args.subject)
-      const content = String(args.content)
+      const subject = args.subject
+      const content = args.content
       const contentBytes = Buffer.byteLength(subject) + Buffer.byteLength(content)
       if (contentBytes > MAX_MESSAGE_BYTES - 512) {
         throw new Error(`team_review: content too large (${contentBytes} bytes, max ${MAX_MESSAGE_BYTES}). Split the review into smaller parts.`)
@@ -1546,7 +1822,7 @@ export function apply(ctx: Context): void {
       await lockedAppend(teamPath(agent, 'reviews.jsonl'), record)
       return { reviewId, msgId, target }
     },
-    presentCall: (args: any) => ({ card: 'generic' as const, title: `Request review: ${args.subject}`, kind: 'other' as const }),
+    presentCall: args => ({ card: 'generic' as const, title: `Request review: ${args.subject}`, kind: 'other' as const }),
   }))
 
   // ── team_review_collect (collect verdicts — closes the review loop) ─────────
@@ -1578,7 +1854,7 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: lines.join('\n') }]
       },
     },
-    execute(args, exec): Promise<any> {
+    execute(args, exec) {
       const agent = exec.agent
       if (!agent) throw new Error('team_review_collect: no agent context')
       const reviews = readJsonl<TeamReview>(teamPath(agent, 'reviews.jsonl'))
@@ -1620,6 +1896,7 @@ export function apply(ctx: Context): void {
           pendingBroadcasts: number
           pendingReviews: number
           tasks: Record<string, number>
+          wrapHint?: string
         }
         const lines = [
           `Team status (self ${v.self.slice(0, 8)}…):`,
@@ -1631,10 +1908,11 @@ export function apply(ctx: Context): void {
           `  pending reviews: ${v.pendingReviews}`,
           `  tasks: ${Object.entries(v.tasks).map(([k, n]) => `${k}=${n}`).join(' ') || 'none'}`,
         ]
+        if (v.wrapHint !== undefined) lines.push(`  ⚑ ${v.wrapHint}`)
         return [{ type: 'text' as const, text: lines.join('\n') }]
       },
     },
-    execute(_args, exec): Promise<any> {
+    execute(_args, exec) {
       const agent = exec.agent
       if (!agent) throw new Error('team_status: no agent context')
       const cwd = teamCwd(agent)
@@ -1665,11 +1943,25 @@ export function apply(ctx: Context): void {
       }
 
       const rollup: Record<string, number> = {}
-      for (const t of readJsonl<TeamTask>(teamPath(agent, 'tasks.jsonl'))) {
+      const allTasks = readJsonl<TeamTask>(teamPath(agent, 'tasks.jsonl'))
+      for (const t of allTasks) {
         rollup[t.status] = (rollup[t.status] ?? 0) + 1
       }
 
-      return Promise.resolve({ self: agent.session.id, peers, unread, pendingBroadcasts, pendingReviews, tasks: rollup })
+      // Explicit termination hint: with every task terminal and no WRAP marker
+      // yet, the coordinator should close the mission instead of letting peers
+      // idle indefinitely. An empty board never hints — nothing was ever run.
+      let wrapHint: string | undefined
+      if (allTasks.length > 0
+        && allTasks.every(t => t.status === 'done' || t.status === 'blocked')
+        && !existsSync(teamPath(agent, 'WRAP'))) {
+        wrapHint = 'All tasks terminal — call team_wrap to archive and release peers.'
+      }
+
+      return Promise.resolve({
+        self: agent.session.id, peers, unread, pendingBroadcasts, pendingReviews, tasks: rollup,
+        ...wrapHint !== undefined ? { wrapHint } : {},
+      })
     },
     presentCall: () => ({ card: 'generic' as const, title: 'Team status snapshot', kind: 'read' as const }),
   }))
@@ -1694,14 +1986,14 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: `Barrier "${v.name}": ${v.arrived}/${v.expect} arrived${v.reached ? ' — REACHED' : ''}${v.arrivedIds.length ? ` (${v.arrivedIds.map(i => i.slice(0, 8)).join(', ')})` : ''}` }]
       },
     },
-    execute(args, exec): Promise<any> {
+    execute(args, exec) {
       const agent = exec.agent
       if (!agent) throw new Error('team_barrier: no agent context')
-      const name = assertSafeTeamId(String(args.name ?? ''), 'team_barrier name')
+      const name = assertSafeTeamId(args.name, 'team_barrier name')
       if (name.length === 0) throw new Error('team_barrier: name is required')
       if (name.length > 200) throw new Error(`team_barrier: name too long (${name.length} chars, max 200)`)
-      if (args.action !== 'arrive' && args.action !== 'wait' && args.action !== 'reset') {
-        throw new Error(`team_barrier: invalid action "${String(args.action)}"`)
+      if (!['arrive', 'wait', 'reset'].includes(args.action)) {
+        throw new Error(`team_barrier: invalid action "${args.action}"`)
       }
       mkdirSync(join(teamCwd(agent), TEAM_DIR), { recursive: true })
       const file = teamPath(agent, `barrier-${name}.json`)
@@ -1733,7 +2025,7 @@ export function apply(ctx: Context): void {
         return { name, arrived: barrier.arrived.length, expect: barrier.expect, reached, arrivedIds: barrier.arrived }
       })
     },
-    presentCall: (args: any) => ({ card: 'generic' as const, title: `Barrier ${args.action}: ${args.name}`, kind: 'other' as const }),
+    presentCall: args => ({ card: 'generic' as const, title: `Barrier ${args.action}: ${args.name}`, kind: 'other' as const }),
   }))
 
   // ── session_delete tool ───────────────────────────────────────────────────
@@ -1758,12 +2050,12 @@ export function apply(ctx: Context): void {
           note: { type: 'string' },
         },
       },
-      render: (_args: any, value: any) => {
-        const v = value as { deleted: string; details: string[]; note: string }
+      render: (_args, value) => {
+        const v = value as unknown as { deleted: string; details: string[]; note: string }
         return [{ type: 'text' as const, text: `Session ${v.deleted} deleted. ${v.details.join('; ')}. ${v.note}` }]
       },
     },
-    execute: async (args: { sessionId: string }, exec: any) => {
+    execute: async (args, exec) => {
       const agent = exec.agent
       if (!agent) throw new Error('session_delete: no agent context')
       const cwd = teamCwd(agent)
@@ -1814,7 +2106,7 @@ export function apply(ctx: Context): void {
         note: 'Storage caches (workspace.json, session_projcache.json) will be cleaned on next server restart. The session is now fully deleted from disk.',
       }
     },
-    presentCall: (args: any) => ({
+    presentCall: args => ({
       card: 'generic' as const,
       title: `Delete session ${args.sessionId}`,
       kind: 'delete' as const,

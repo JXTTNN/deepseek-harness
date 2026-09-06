@@ -1,5 +1,7 @@
 CLAUDE.local.md
 .env
+# Local cloud-run evidence downloads (dsh-web.log, UI screenshots)
+evidence*/
 # Team-mode runtime data (regenerated on start): presence, inbox, tasks, review, memory
 .team/
 patch.ps1

@@ -425,6 +425,14 @@
     - id: web-search-searxng
       name: '@deepseek-ai/dsh-web-search-searxng'
 
+    # Keyless, zero-instance safety net: DuckDuckGo public HTML endpoint needs
+    # no API key AND no self-hosted engine, so this is the last-resort provider
+    # when the keyed gateways and any SearXNG instance are all unavailable.
+    # Public endpoint rate-limits aggressively — keep `responses` the default,
+    # use `searchProvider: ddg` only as the free fallback.
+    - id: web-search-ddg
+      name: '@deepseek-ai/dsh-web-search-ddg'
+
     - id: tool-web
       name: '@deepseek-ai/dsh-tool-web'
       config:
