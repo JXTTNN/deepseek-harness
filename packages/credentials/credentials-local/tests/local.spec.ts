@@ -273,6 +273,62 @@ describe('document validation', () => {
   })
 })
 
+describe('structured documents', () => {
+  // Newer releases write a versioned document: opaque billing/session grants
+  // under `records` beside the credential `refs`. Older code must read it
+  // rather than fail boot — the installed 0.1.2-rc.1 file is exactly this.
+  it('serves refs from a versioned document whose records stay opaque', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, [
+      'version: 1',
+      'records:',
+      '  client-connection/browser-session:',
+      '    kind: grant',
+      '    payload:',
+      '      version: 1',
+      '      secret: not-a-credential-ref',
+      'refs:',
+      '  JH_API_KEY: sk-jh',
+      '  SS_API_KEY: sk-ss',
+      '',
+    ].join('\n'))
+    const ctx = await boot({ path, watch: false })
+    expect(await ctx.credentials.resolve(credentialRef('JH_API_KEY'))).toEqual({ value: 'sk-jh', source: 'file' })
+    expect(await ctx.credentials.resolve(credentialRef('SS_API_KEY'))).toEqual({ value: 'sk-ss', source: 'file' })
+    expect(await ctx.credentials.describe(credentialRef('JH_API_KEY')))
+      .toEqual({ configured: true, source: 'file', writable: true })
+  })
+
+  it('accepts a string version and skips a non-string ref value instead of crashing boot', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, [
+      'version: "1"',
+      'records: {}',
+      'refs:',
+      '  JH_API_KEY: sk-jh',
+      '  FUTURE_REF:',
+      '    opaque: value-from-a-future-schema',
+      '  DSH_CRED_TEST: ""',
+      '',
+    ].join('\n'))
+    const ctx = await boot({ path, watch: false })
+    expect(await ctx.credentials.resolve(credentialRef('JH_API_KEY'))).toEqual({ value: 'sk-jh', source: 'file' })
+    // Out-of-schema values are absent, never fatal and never served.
+    expect(await ctx.credentials.resolve(credentialRef('FUTURE_REF'))).toBeUndefined()
+    expect(await ctx.credentials.resolve(KEY)).toBeUndefined()
+  })
+
+  it('still rejects a structured document whose ref key is not an addressable reference', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.credentials.yaml')
+    await writeCredentials(path, 'version: 1\nrefs:\n  not-a-ref: value\n')
+    const ctx = new Context()
+    await expect(ctx.plugin(LocalCredentialProvider, { path, watch: false })).rejects.toThrow(/credential ref/)
+  })
+})
+
 describe('document writes', () => {
   it('adds a missing key to a fresh 0600 document and emits the commit', async () => {
     const dir = await tempDir()

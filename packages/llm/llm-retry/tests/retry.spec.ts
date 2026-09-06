@@ -434,6 +434,82 @@ describe('provider-routed retry policy', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it.each(['HTTP_401', 'HTTP_402', 'HTTP_403'] as const)(
+    'returns fatal authentication and billing failure %s without retrying under always mode',
+    async (code) => {
+      vi.useFakeTimers()
+      const adapter = new ScriptedAdapter([new LlmError('dead key or empty balance', code)])
+      ;({ ctx: context } = await harness(adapter, { mock: alwaysConfig() }))
+      const agent = context.agentLoop.create(SessionId(`retry-fatal-${code}`), {
+        provider: 'mock',
+        model: 'mock',
+      })
+      const idle = waitForIdle(context, agent)
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await idle
+
+      expect(adapter.requests).toHaveLength(1)
+      expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(agent.session.events.at(-1)).toMatchObject({
+        type: 'turn/end',
+        data: { reason: { kind: 'error', error: { code } } },
+      })
+    },
+  )
+
+  it('keeps a fatal code unretried when a normal policy lists it', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([new LlmError('payment required', 'HTTP_402', { status: 402 })])
+    ;({ ctx: context } = await harness(adapter, {
+      mock: normalConfig({ retryableCodes: ['HTTP_402'] }),
+    }))
+    const agent = context.agentLoop.create(SessionId('retry-fatal-listed'), { provider: 'mock', model: 'mock' })
+    const idle = waitForIdle(context, agent)
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await idle
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(agent.session.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'error', error: { code: 'HTTP_402', status: 402 } } },
+    })
+  })
+
+  it('still retries a transient RATE_LIMIT failure under always mode', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([
+      new LlmError('busy', 'RATE_LIMIT', { status: 429 }),
+      textResponse('recovered'),
+    ])
+    ;({ ctx: context } = await harness(adapter, {
+      mock: alwaysConfig({ initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 }),
+    }))
+    const agent = context.agentLoop.create(SessionId('retry-always-rate-limit'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+    const scheduled = waitForRetry(context, agent, 1)
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    expect((await scheduled).data).toMatchObject({
+      mode: 'always',
+      retry: 1,
+      delayMs: 1,
+      failure: { message: 'busy', code: 'RATE_LIMIT', status: 429 },
+    })
+    const idle = waitForIdle(context, agent)
+    await vi.advanceTimersByTimeAsync(1)
+    await idle
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(agent.session.deriveMessages().at(-1)).toMatchObject({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'recovered' }],
+    })
+  })
+
   it('delegates when no final adapter served the failed request', async () => {
     const adapter = new ScriptedAdapter([textResponse('must not run')])
     const mounted = await harness(adapter, { mock: alwaysConfig() })

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isNonRetryableCode,
+  NON_RETRYABLE_CODES,
   resolveRetryPolicy,
   RetryPolicySchema,
 } from '@deepseek-ai/dsh-llm'
@@ -57,6 +59,17 @@ describe('provider retry policy', () => {
       jitterRatio: 0.1,
     })
     expect(RetryPolicySchema).toBeDefined()
+  })
+
+  it('marks exactly the HTTP 401/402/403 authentication and billing codes as fatal', () => {
+    expect(NON_RETRYABLE_CODES).toEqual(['HTTP_401', 'HTTP_402', 'HTTP_403'])
+    expect(Object.isFrozen(NON_RETRYABLE_CODES)).toBe(true)
+    for (const code of NON_RETRYABLE_CODES) {
+      expect(isNonRetryableCode(code)).toBe(true)
+    }
+    for (const code of ['', 'HTTP_40', 'HTTP_400', 'HTTP_404', 'HTTP_410', 'HTTP_429', 'HTTP_501', 'AUTH', 'QUOTA', 'RATE_LIMIT']) {
+      expect(isNonRetryableCode(code)).toBe(false)
+    }
   })
 
   it.each([

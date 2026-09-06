@@ -140,13 +140,26 @@ function describeYamlError(error: YAMLError): string {
 }
 
 /**
- * Parse one credentials document into its entries. The document is a strict
- * mapping of {@link CredentialRef} to non-empty string: a non-mapping root, a
- * key that is not a POSIX identifier, a non-string value, and an empty string
- * are all rejected rather than skipped, because this file holds nothing but
+ * Parse one credentials document into its entries. Two forms are accepted.
+ *
+ * The flat form, written and edited by this provider, is a strict mapping of
+ * {@link CredentialRef} to non-empty string: a non-mapping root, a key that
+ * is not a POSIX identifier, a non-string value, and an empty string are all
+ * rejected rather than skipped, because this file holds nothing but
  * credentials and a silently ignored entry reads as "the key I stored has no
- * effect". Duplicate keys surface as parser errors. An empty document is an
- * empty store.
+ * effect".
+ *
+ * The structured form, written by newer releases, is a root mapping with a
+ * `version` (string or number), a `records` mapping of opaque billing and
+ * session grants, and a `refs` mapping of credential reference to value; it
+ * is recognized by its `refs` mapping. Only `refs` contributes entries:
+ * `records` payloads are not credentials and stay opaque, and a non-string
+ * or empty value under `refs` is skipped rather than fatal, so a document
+ * current code cannot fully model can never brick auth on boot. Ref keys
+ * remain strict — every served entry must be an addressable reference.
+ *
+ * Duplicate keys surface as parser errors. An empty document is an empty
+ * store.
  * @param text - the document's text.
  * @param filename - absolute path, quoted in errors.
  * @returns the parsed entries, keyed by reference.
@@ -165,6 +178,22 @@ export function parseCredentialsDocument(text: string, filename: string): Map<st
   const root: unknown = document.toJS() ?? {}
   if (typeof root !== 'object' || root === null || Array.isArray(root)) {
     throw new TypeError(`credentials-local: ${filename} must be a mapping of credential reference to value`)
+  }
+  // A `refs` mapping marks the structured form; the `version` and `records`
+  // sections are opaque here and never inspected for credentials. Any other
+  // root falls through to the strict flat mapping below.
+  const refs: unknown = (root as Record<string, unknown>).refs
+  if (typeof refs === 'object' && refs !== null && !Array.isArray(refs)) {
+    const entries = new Map<string, string>()
+    for (const [key, value] of Object.entries(refs)) {
+      credentialRef(key)
+      // Lenient where the flat form is strict: an entry this version cannot
+      // model is skipped, not fatal, because refs under a future schema must
+      // never brick auth on boot.
+      if (typeof value !== 'string' || value.length === 0) continue
+      entries.set(key, value)
+    }
+    return entries
   }
   const entries = new Map<string, string>()
   for (const [key, value] of Object.entries(root as Record<string, unknown>)) {

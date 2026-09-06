@@ -253,6 +253,13 @@ describe('the shipped Web composition', () => {
       const scopedSkills = (await ctx.skills.list({ scope: handle.agent })).map(skill => skill.name)
       expect(scopedSkills).toContain('office-documents')
       expect(scopedSkills).toContain('deep-research')
+      expect(scopedSkills).toContain('systematic-debugging')
+      expect(scopedSkills).toContain('test-driven-work')
+      expect(scopedSkills).toContain('code-review')
+      expect(scopedSkills).toContain('security-audit')
+      expect(scopedSkills).toContain('architecture-and-contracts')
+      expect(scopedSkills).toContain('verify-before-complete')
+      expect(scopedSkills).toContain('subagent-partitioning')
     } finally {
       await handle.dispose()
     }

@@ -23,6 +23,28 @@ const DEFAULT_RETRYABLE_CODES = Object.freeze([
   'TRANSPORT',
 ])
 
+/**
+ * Authentication and billing failure codes that are fatal to every retry
+ * policy: an HTTP 401, 402, or 403 provider response fails identically until
+ * the credential or balance changes, so repeating the request cannot succeed.
+ * The retry executor never retries these codes, in either mode, even when a
+ * normal policy lists them in `retryableCodes`.
+ */
+export const NON_RETRYABLE_CODES: readonly string[] = Object.freeze([
+  'HTTP_401',
+  'HTTP_402',
+  'HTTP_403',
+])
+
+/**
+ * @param code - stable failure code carried by an `LlmFailure`.
+ * @returns true only for the fatal authentication and billing codes in
+ * {@link NON_RETRYABLE_CODES}; every other code stays policy-routed.
+ */
+export function isNonRetryableCode(code: string): boolean {
+  return NON_RETRYABLE_CODES.includes(code)
+}
+
 /** Bounded exponential backoff with symmetric jitter around each local delay. */
 export interface BackoffConfig {
   /** Initial local exponential-backoff delay in milliseconds (default 500). */
@@ -39,15 +61,20 @@ export interface NormalRetryPolicyConfig {
   mode: 'normal'
   /** Maximum eligible retries after the first request (default 2). */
   maxRetries?: number
-  /** Stable failure codes eligible for this policy. */
+  /** Stable failure codes eligible for this policy; {@link NON_RETRYABLE_CODES} stay fatal even when listed. */
   retryableCodes?: string[]
   /** Local exponential-backoff and jitter configuration. */
   backoff?: BackoffConfig
 }
 
-/** Unbounded retry behavior for every model-request failure on one provider route. */
+/**
+ * Unbounded retry behavior for model-request failures on one provider route.
+ * Authentication and billing failures ({@link NON_RETRYABLE_CODES}) are fatal:
+ * they are never retried, because an unchanged credential or balance fails
+ * identically on every attempt.
+ */
 export interface AlwaysRetryPolicyConfig {
-  /** Retry every model-request failure until success, cancellation, or disposal. */
+  /** Retry every non-fatal model-request failure until success, cancellation, or disposal. */
   mode: 'always'
   /** Local exponential-backoff and jitter configuration. */
   backoff?: BackoffConfig
@@ -70,7 +97,7 @@ export interface ResolvedNormalRetryPolicy extends ResolvedRetryBackoff {
   readonly retryableCodes: readonly string[]
 }
 
-/** Fully resolved unbounded retry policy. */
+/** Fully resolved unbounded retry policy; {@link NON_RETRYABLE_CODES} remain fatal. */
 export interface ResolvedAlwaysRetryPolicy extends ResolvedRetryBackoff {
   readonly mode: 'always'
 }

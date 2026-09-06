@@ -37,16 +37,35 @@ try {
   await page.waitForLoadState('networkidle').catch(() => {})
   await page.waitForTimeout(3000)
 
+  // Ensure a workspace + session exist so the page can leave the hero state:
+  // a real user connects a workspace and opens a session first. The API setup
+  // below mirrors those gestures deterministically in headless CI where the
+  // workspace picker requires filesystem interaction no keyboard can reach.
+  const SID = `ui-send-${Date.now()}`
+  await rpc('workspace.create', { path: home })
+  const created = await rpc('session.create', { sessionId: SID, cwd: home })
+  log('session.create ok', created?.result?.ok)
+
   // The live composer ("Message the agent" placeholder) only appears when a
   // workspace is connected and a session is active. Click "New session" to
   // leave the hero/inert state, which is the same gesture a real user makes.
   const newSession = page.getByRole('button', { name: 'New session' }).first()
   if (await newSession.count() === 0) {
-    log('SKIP: no New session button (workspace not connected)')
-    process.exit(0)
+    // No hero affordance: the UI may already show a session list. Reload so the
+    // freshly created session renders, then click it like a user would.
+    await page.reload({ waitUntil: 'networkidle' }).catch(() => {})
+    const item = page.locator('text=' + SID).first()
+    if (await item.count() > 0) {
+      await item.click().catch(() => {})
+      await page.waitForTimeout(1500)
+    } else {
+      log('SKIP: no New session button and created session not rendered')
+      process.exit(0)
+    }
+  } else {
+    await newSession.click().catch(() => {})
+    await page.waitForTimeout(1500)
   }
-  await newSession.click().catch(() => {})
-  await page.waitForTimeout(1500)
 
   const composer = page.locator('textarea:enabled').last()
   if (await composer.count() === 0) {
