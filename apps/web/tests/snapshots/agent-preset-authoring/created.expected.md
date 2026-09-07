@@ -22,6 +22,16 @@
   - heading "内置" [level=3]
   - list:
     - listitem:
+      - 'button "设为默认: Team 模式"':
+        - text: Team 模式 内置 团队协作模式：一个 DeepSeek 队长 Agent 拆解任务、派出多个子 Agent 并行协作、互相监督、共享目标记忆，像 Claude Code 多会话协同一样完成工作。
+        - code: team
+      - 'button "查看: Team 模式"':
+        - img
+        - text: 查看
+      - 'button "复制: Team 模式"':
+        - img
+        - text: 复制
+    - listitem:
       - 'button "当前使用: 标准模式" [disabled] [pressed]':
         - text: 标准模式 内置 当前使用 功能完整的编码 Agent，支持文件编辑、Shell、文件与网页检索、Skills、计划、目标、子代理和工作流。
         - code: standard

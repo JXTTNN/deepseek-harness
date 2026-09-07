@@ -237,8 +237,10 @@ export interface LaunchOptions {
   welcomeNoticePending?: boolean
   /**
    * Patch the shipped DeepSeek search row to a deterministic endpoint and
-   * credential reference. Browser search scenarios keep the real provider and
-   * credentials seam while avoiding external search traffic and ambient keys.
+   * credential reference, and pin the `web` seam's provider selection to it
+   * (the shipped default is `responses`, which speaks a different endpoint).
+   * Browser search scenarios keep the real provider and credentials seam
+   * while avoiding external search traffic and ambient keys.
    */
   deepSeekSearch?: {
     /** Anthropic-compatible base URL; the provider appends `/messages`. */
@@ -478,13 +480,20 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
       : [],
     ...options.deepSeekSearch === undefined
       ? []
-      : [{
-        id: 'web-search-deepseek',
-        config: {
-          apiKeyEnv: options.deepSeekSearch.apiKeyEnv,
-          baseURL: options.deepSeekSearch.baseURL,
+      : [
+        // The shipped default selection is `responses`; this option pins the
+        // scenario to the DeepSeek Messages route its deterministic endpoint
+        // speaks. A patch replaces the row's complete config, which here is
+        // exactly the selection key.
+        { id: 'web', config: { searchProvider: 'deepseek-official' } },
+        {
+          id: 'web-search-deepseek',
+          config: {
+            apiKeyEnv: options.deepSeekSearch.apiKeyEnv,
+            baseURL: options.deepSeekSearch.baseURL,
+          },
         },
-      }],
+      ],
     ...mode === 'record' || options.deepSeekMissingCredential === true
       ? []
       : [{ id: 'llm-deepseek', disabled: true }],
@@ -793,9 +802,14 @@ async function persistSeedSession(
  */
 function normalizeAria(snapshot: string, workspaceCwd: string): string {
   // The session heading renders the workspace's basename, not the full
-  // path, so both spellings must collapse to the token.
-  const base = workspaceCwd.split('/').pop()!
+  // path, so both spellings must collapse to the token. Windows paths split
+  // on backslashes too.
+  const base = workspaceCwd.split(/[\\/]/).pop()!
   return snapshot
+    // In an aria snapshot a Windows path's backslashes arrive doubled
+    // (snapshot string-literal escaping), so scrub that spelling first — on
+    // POSIX paths the escaped spelling equals the plain one and splits nothing.
+    .split(workspaceCwd.replace(/\\/g, '\\\\')).join('{{cwd}}')
     .split(workspaceCwd).join('{{cwd}}')
     .split(base).join('{{workspace}}')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{{uuid}}')

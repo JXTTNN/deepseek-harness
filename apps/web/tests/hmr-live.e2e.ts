@@ -89,7 +89,15 @@ it('hot-reloads a real client-plugin source edit without refreshing the page', a
   const failures: unknown[] = []
   try {
     subprocessFiber = await subprocessCtx.plugin(LocalSubprocessRuntime)
-    watcher = subprocessCtx.subprocess.spawn(spawnSpec(['pnpm', 'run', 'dev:web'], REPO_ROOT))
+    // win32: pnpm is a .cmd shim — not a CreateProcess image (ENOENT bare) —
+    // and Node refuses .cmd spawns without a shell (EINVAL), so go through
+    // cmd.exe. POSIX keeps the direct spawn.
+    watcher = subprocessCtx.subprocess.spawn(spawnSpec(
+      process.platform === 'win32'
+        ? ['cmd.exe', '/d', '/s', '/c', 'pnpm', 'run', 'dev:web']
+        : ['pnpm', 'run', 'dev:web'],
+      REPO_ROOT,
+    ))
     await waitForOutput(watcher, /dev-web: watching/, 'pnpm run dev:web')
     host = subprocessCtx.subprocess.spawn(spawnSpec(
       [process.execPath, binPath, 'web', '--port', '0'],

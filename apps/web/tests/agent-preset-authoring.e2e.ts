@@ -46,12 +46,22 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
 
   /** Tokenize the lane-owned preset root after general aria normalization. */
   function withPresetRoot(snapshot: string): string {
-    const rootSuffix = `/${userRoot.split('/').pop()!}`
+    const basename = userRoot.split(/[\\/]/).pop()!
+    // Windows renders the root with backslashes, and an aria-quoted scalar
+    // doubles them, so the suffix appears in three spellings across hosts.
+    const suffixes = [`/${basename}`, `\\${basename}`, `\\\\${basename}`]
     return snapshot.split('\n').map((line) => {
-      const rootStart = line.indexOf(rootSuffix)
-      if (rootStart === -1) return line
-      const pathStart = line.lastIndexOf(' ', rootStart) + 1
-      return `${line.slice(0, pathStart)}{{presetRoot}}${line.slice(rootStart + rootSuffix.length)}`
+      for (const suffix of suffixes) {
+        const rootStart = line.indexOf(suffix)
+        if (rootStart === -1) continue
+        const pathStart = line.lastIndexOf(' ', rootStart) + 1
+        // The child separator follows the host too; the token's right side
+        // keeps the POSIX spelling the committed golden uses.
+        const child = /^[/\\]([^\s"']*)/.exec(line.slice(rootStart + suffix.length))
+        if (child === null) return `${line.slice(0, pathStart)}{{presetRoot}}${line.slice(rootStart + suffix.length)}`
+        return `${line.slice(0, pathStart)}{{presetRoot}}/${child[1]}${line.slice(rootStart + suffix.length + child[0].length)}`
+      }
+      return line
     }).join('\n')
   }
 

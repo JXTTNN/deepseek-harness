@@ -34,23 +34,49 @@ const FILE_REFERENCE_PROMPT = fileURLToPath(new URL(
  */
 const EXPECTED_TOOLS = [
   'ask_user_question',
-  'bash',
+  // The shell tool follows the host platform (sorted seat below 'list_agents'):
+  // the preset disables tool-bash on win32 and tool-pwsh elsewhere
+  // (agent.cordis.yml `disabled: !!js` rows).
   'create_goal',
   'edit',
   'exit_plan_mode',
   'get_goal',
+  // Fork catalog: the GitHub toolset (tool-github row in the standard preset).
+  'github_file_read',
+  'github_issue_create',
+  'github_issue_list',
+  'github_pr_create',
+  'github_search_code',
   'interrupt_agent',
   'job_kill',
   'job_list',
   'job_output',
   'list_agents',
+  process.platform === 'win32' ? 'pwsh' : 'bash',
   'ralph',
   'read',
   'read_image',
   'send_message',
+  'session_delete',
   'skill',
   'subagent',
   'subagent_fork',
+  // Fork catalog: the team collaboration toolset (tool-team-comm row).
+  'team_barrier',
+  'team_broadcast',
+  'team_collect',
+  'team_inbox',
+  'team_list',
+  'team_memory',
+  'team_report',
+  'team_review',
+  'team_review_collect',
+  'team_send',
+  'team_status',
+  'team_task',
+  'team_think_read',
+  'team_wrap',
+  'think',
   'todo_write',
   'update_goal',
   'web_search',
@@ -136,15 +162,18 @@ it('lets a preset producer reach the background-job registry', async () => {
   })
   try {
     const signal = new AbortController().signal
-    // `tool-bash` is a preset row and `tasks` is a host registry; the producer
-    // resolves it with `ctx.get`, so a registry hidden behind a preset realm
-    // fails here — with every task control still listed in the catalog above.
+    // `tool-bash` (POSIX) / `tool-pwsh` (win32) are preset rows and `tasks` is
+    // a host registry; the producer resolves it with `ctx.get`, so a registry
+    // hidden behind a preset realm fails here — with every task control still
+    // listed in the catalog above. The seam under test is the registry
+    // linkage, so the shell tool name follows the host platform.
+    const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash'
     const started = await ctx.tools.execute({
       signal,
       callId: CallId('shipped-bash-background'),
-      name: 'bash',
+      name: shellTool,
       arguments: {
-        command: 'printf SHIPPED_BACKGROUND_OK',
+        command: shellTool === 'pwsh' ? 'Write-Output SHIPPED_BACKGROUND_OK' : 'printf SHIPPED_BACKGROUND_OK',
         description: 'shipped background probe',
         run_in_background: true,
       },
@@ -152,7 +181,7 @@ it('lets a preset producer reach the background-job registry', async () => {
     })
     expect({ isError: started.isError, content: started.content }).toEqual({
       isError: false,
-      content: [{ type: 'text', text: 'started background job bash-1' }],
+      content: [{ type: 'text', text: `started background job ${shellTool}-1` }],
     })
 
     // The controller reads what the producer started: same registry, one
@@ -166,7 +195,7 @@ it('lets a preset producer reach the background-job registry', async () => {
     })
     expect(listed.isError).toBe(false)
     expect(listed.content).toEqual([
-      { type: 'text', text: expect.stringContaining('bash-1 [bash]') as unknown as string },
+      { type: 'text', text: expect.stringContaining(`${shellTool}-1 [${shellTool}]`) as unknown as string },
     ])
 
     // The full round trip: the output a host-plane producer wrote is collected
@@ -175,7 +204,7 @@ it('lets a preset producer reach the background-job registry', async () => {
       signal,
       callId: CallId('shipped-task-output'),
       name: 'job_output',
-      arguments: { job_id: 'bash-1', wait: true },
+      arguments: { job_id: `${shellTool}-1`, wait: true },
       agent: handle.agent,
     })
     expect(collected.isError).toBe(false)

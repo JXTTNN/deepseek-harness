@@ -368,11 +368,14 @@ describe('dsh web keyless CLI smoke', () => {
       if (page === undefined) throw new Error('retry history was not observed')
       const retry = page.events.find(({ event }) => event.type === 'llm/retry')?.event
       expect(mainAttempts).toBe(2)
+      // The shipped DeepSeek adapter defaults to the unbounded `always` policy
+      // (llm-deepseek resolveRetryPolicy fallback), whose llm/retry event omits
+      // maxRetries by contract.
       expect(retry?.data).toMatchObject({
         turn: 1,
         step: 1,
         retry: 1,
-        maxRetries: 2,
+        mode: 'always',
         failure: { code: 'TRANSPORT' },
       })
       expect(JSON.stringify(page.events)).toContain('WEB_RETRY_DISCARDED')
@@ -385,7 +388,10 @@ describe('dsh web keyless CLI smoke', () => {
       await new Promise<void>(resolveClose => provider.close(() => { resolveClose() }))
       rmSync(workspace, { recursive: true, force: true })
     }
-  }, 30_000)
+    // The source-launch CLI boot (tsx hook + full shipped graph) plus a
+    // transport-failure retry is well past 30s on a Windows host; the
+    // contract is the retry, not the boot speed.
+  }, 120_000)
 
   it('DSH_TOOLS_MODE=code collapses the provider wire tools to run_code with the SDK prompt section', async () => {
     requireDist()

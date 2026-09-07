@@ -1,4 +1,5 @@
 - menu:
+  - menuitem "Team 模式 团队协作模式：一个 DeepSeek 队长 Agent 拆解任务、派出多个子 Agent 并行协作、互相监督、共享目标记忆，像 Claude Code 多会话协同一样完成工作。"
   - menuitem "Standard mode Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.":
     - text: Standard mode Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.
     - img
