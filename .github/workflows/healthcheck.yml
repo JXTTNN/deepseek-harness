@@ -1,0 +1,15 @@
+# Minimal no-op lane used to separate account/infra startup failures from
+# code failures: zero secrets, zero build steps, one echo. If this can start,
+# every other startup_failure is environmental.
+name: Healthcheck
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  nop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
