@@ -478,6 +478,7 @@
         retryPolicy:
           mode: normal
           maxRetries: 5
-          initialDelayMs: 2000
-          maxDelayMs: 30000
-          jitterRatio: 0.2
+          backoff:
+            initialDelayMs: 2000
+            maxDelayMs: 30000
+            jitterRatio: 0.2
