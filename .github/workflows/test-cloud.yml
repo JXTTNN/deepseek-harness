@@ -120,6 +120,13 @@ jobs:
         run: node apps/web/tests/conductor/send-message.mjs
         continue-on-error: true
 
+      # Full real-person walkthrough: every primary surface via clicks+typing
+      # only. Starts best-effort while its CI picker path (browse dialog on
+      # headless linux) gets proven; promote to required on next green run.
+      - name: E2E — real-browser full UI walkthrough (best-effort)
+        run: node apps/web/tests/conductor/ui-walkthrough.mjs
+        continue-on-error: true
+
       - name: Verify — team lead delegates to a worker (multi-agent, best-effort)
         run: node apps/web/tests/conductor/team-delegate.mjs
         continue-on-error: true
@@ -146,5 +153,7 @@ jobs:
             dsh-web.log
             llm-probe.json
             delete-flow-*.png
+            send-message-*.png
+            walkthrough-*.png
           if-no-files-found: ignore
           retention-days: 7
