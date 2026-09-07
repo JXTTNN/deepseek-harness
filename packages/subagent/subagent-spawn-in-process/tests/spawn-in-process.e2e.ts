@@ -41,5 +41,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('spawn backend with-key smoke', (
     const events = [...parent.session.events]
     const subagentCalls = events.filter(e => e.type === 'tool/call' && e.data.name === 'subagent')
     expect(subagentCalls.length).toBeGreaterThan(0)
-  }, 180_000)
+    // Parent→child double hop already strung two model runs together; a
+    // congested gateway needs the same headroom as the single-hop suites.
+  }, 480_000)
 })

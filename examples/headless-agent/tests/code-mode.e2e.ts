@@ -393,7 +393,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
       : ''
     expect(finalText).toContain('alpha-7')
     expect(finalText).toContain('beta-9')
-  }, 180_000)
+  }, 480_000)
 
   it('projects nested workspace instructions discovered by an fs sub-call', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'dsh-code-mode-workspace-e2e-'))
@@ -434,5 +434,5 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('Code Mode: real model writes a p
       .map(block => block.text)
       .join('\n')
     expect(contextText).toContain(WORKSPACE_PROBE)
-  }, 180_000)
+  }, 480_000)
 })

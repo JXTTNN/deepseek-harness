@@ -83,7 +83,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
     await waitForIdle(live.ctx, live.agent)
 
     expect(finalText([...live.agent.session.events])).toContain(PROBE)
-  }, 120_000)
+  }, 360_000)
 
   it('loads a nested AGENTS.md after the real read tool touches a descendant file', async () => {
     const live = await harness()
@@ -95,7 +95,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
     await waitForIdle(live.ctx, live.agent)
 
     expect(finalText([...live.agent.session.events])).toContain(NESTED_PROBE)
-  }, 120_000)
+  }, 360_000)
 
   it('appends changed baseline instructions after a real file-tool touch without rewriting the frozen prefix', async () => {
     const live = await harness()
@@ -119,5 +119,5 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
       : ''
     expect(updateText).toContain('Updated instructions from: AGENTS.md')
     expect(finalText(events)).toContain(UPDATED_PROBE)
-  }, 120_000)
+  }, 360_000)
 })

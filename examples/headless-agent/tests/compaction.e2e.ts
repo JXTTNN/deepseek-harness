@@ -84,5 +84,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     const answer = finalText(events).toLowerCase()
     expect(answer.length).toBeGreaterThan(0)
     expect(answer).toMatch(/\b(4|four)\b/)
-  }, 240_000)
+    // The compaction turn needs ~8 model hops at threshold; on a 20-req/min
+    // gateway each hop is tens of seconds, so the whole phase needs 8 min.
+  }, 480_000)
 })
