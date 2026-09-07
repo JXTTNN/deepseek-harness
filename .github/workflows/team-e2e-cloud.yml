@@ -1,0 +1,124 @@
+name: Team E2E Cloud
+
+# Cloud-native team-mode end-to-end lane for the deepseek-harness fork: build
+# the workspace, serve the real `dsh web` shell, then run the team-mode
+# conductor scripts (API + real-browser UI) as STRICT, non-best-effort gates.
+# Best-effort UI probes are kept but do not block the run. Runs on standard
+# hosted runners so it works on any public fork.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  PRIMARY_NODE_VERSION: '22'
+  DEEPSEEK_API_KEY: ${{ secrets.DSH_API_KEY }}
+  DEEPSEEK_BASE_URL: ${{ secrets.DSH_BASE_URL }}
+  DSH_MODEL_NAME: ${{ secrets.DSH_MODEL }}
+
+jobs:
+  team-e2e-cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm run build
+
+      - name: Start web shell
+        run: |
+          nohup pnpm dsh web > dsh-web.log 2>&1 &
+          url=""
+          for i in $(seq 1 90); do
+            url="$(grep -oE 'dsh web: http://[^ ]+' dsh-web.log | head -n1 | sed 's/^dsh web: //')"
+            if [ -n "$url" ] && curl -fsS "$url/" >/dev/null 2>&1; then
+              echo "web shell ready at $url after ${i}s"
+              echo "DSH_WEB_URL=$url" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "web shell failed to start" >&2
+          cat dsh-web.log >&2
+          exit 1
+
+      - name: Smoke — HTTP 200 and boot injection
+        run: |
+          html="$(curl -fsS "$DSH_WEB_URL/")"
+          echo "$html" | grep -q '__DSH_BOOT__' && echo "boot injection present"
+          echo "$html" | head -c 400
+
+      - name: Diagnose — raw LLM endpoint probe
+        id: llm-probe
+        run: |
+          base="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
+          model="${DSH_MODEL_NAME:-deepseek-chat}"
+          body=$(printf '{"model":"%s","messages":[{"role":"user","content":"ping"}],"max_tokens":4,"stream":false}' "$model")
+          code=$(curl -sS -o llm-probe.json -w '%{http_code}' \
+            -X POST "$base/chat/completions" \
+            -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+            -H 'Content-Type: application/json' \
+            --data "$body" --max-time 60) || code="curl-failed"
+          echo "llm probe http_status=$code model=$model base=$base"
+          head -c 800 llm-probe.json | sed -E 's/(sk-[A-Za-z0-9_-]{4,})/[REDACTED]/g' || true
+          echo
+          echo "status=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+
+      - name: Verify — session delete removes files (API)
+        run: node apps/web/tests/conductor/delete-api-verify.mjs
+
+      - name: Verify — team peer discovery (presence)
+        run: node apps/web/tests/conductor/team-find-peer.mjs
+
+      - name: Verify — cross-process lock (no data loss)
+        run: node apps/web/tests/conductor/lock-test.mjs
+
+      - name: Verify — team agent invokes team tools (LLM end-to-end)
+        run: node apps/web/tests/conductor/team-collab.mjs
+
+      - name: Verify — team lead delegates to a worker (multi-agent)
+        run: node apps/web/tests/conductor/team-delegate.mjs
+
+      - name: E2E — real-browser team-mode UI (STRICT)
+        run: node apps/web/tests/conductor/team-ui-e2e.mjs
+
+      - name: E2E — real-browser send-message (best-effort)
+        run: node apps/web/tests/conductor/send-message.mjs
+        continue-on-error: true
+
+      - name: E2E — real-browser full UI walkthrough (best-effort)
+        run: node apps/web/tests/conductor/ui-walkthrough.mjs
+        continue-on-error: true
+
+      - name: Upload session logs + screenshots + web log (failure diagnostics)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: team-e2e-cloud-failure
+          path: |
+            ~/.dsh/sessions/**
+            *.png
+            dsh-web.log
+          if-no-files-found: ignore
+          retention-days: 7
