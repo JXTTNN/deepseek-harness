@@ -52,6 +52,12 @@ const OFFICIAL_ONLY_SUITES = [
   // gateways that only speak chat completions return null judged objects
   // (run 34106273380). That pass criterion cannot hold off the official API.
   'packages/workflow/workflow-worker-thread/tests/workflow-worker-thread.e2e.ts',
+  // compaction e2e asserts WHICH surface seqs the compactor shadowed. Region
+  // selection rides the gateway's per-turn token attribution; gateways whose
+  // usage accounting diverges from the official API's produce compactions
+  // with a different (possibly empty) shadow set (run 34110250898: start/end/
+  // summary all present, shadowedSeqs empty). Gate to the official meter.
+  'examples/headless-agent/tests/compaction.e2e.ts',
 ]
 if (!isOfficialEndpoint) {
   console.warn(
