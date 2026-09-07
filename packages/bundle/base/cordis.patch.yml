@@ -469,5 +469,15 @@
     # request from the `llm-deepseek:` settings section over this entry, with the
     # key coming from the credential store below. Thinking defaults are a deployment
     # choice.
+    # This fork points deployments at shared gateways that rate-limit per key;
+    # give the loop room to ride one congestion window before failing a turn
+    # (matches the fork's E2E evidence: minute-bucket 429s land back-to-back).
     - id: llm-deepseek
       name: '@deepseek-ai/dsh-llm-deepseek'
+      config:
+        retryPolicy:
+          mode: normal
+          maxRetries: 5
+          initialDelayMs: 2000
+          maxDelayMs: 30000
+          jitterRatio: 0.2

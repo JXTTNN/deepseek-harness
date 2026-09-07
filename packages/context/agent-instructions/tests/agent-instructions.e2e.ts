@@ -12,6 +12,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
+import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import * as WorkspaceContext from '@deepseek-ai/dsh-agent-instructions'
 import { candidateScopeKey } from '../src/render.ts'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -54,6 +55,7 @@ async function harness(): Promise<{ ctx: Context; agent: Agent }> {
   await ctx.plugin(WorkspaceContext, { maxBytes: 65536 })
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LlmDeepSeek, { models: [{ id: 'deepseek-v4-flash' }] })
+  await ctx.plugin(LlmRetry)
   const handle = await ctx.agents.create({
     sessionId: SessionId('workspace-context-e2e-session'),
     meta: { cwd: workdir },

@@ -9,6 +9,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
+import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -62,6 +63,9 @@ export async function codingHarness(workdir: string, options: CodingHarnessOptio
   await ctx.plugin(LlmDeepSeek, options.modelContextWindow === undefined ? {} : {
     models: [{ id: 'deepseek-v4-flash', contextWindow: options.modelContextWindow }],
   })
+  // Same recovery stack the base bundle runs; without it a transient gateway
+  // 429/524 hard-ends the turn before the first tool call (fs-tools dumps).
+  await ctx.plugin(LlmRetry)
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(BashEnvPlugin)
   await ctx.plugin(LocalBashExecutor, { cwd: workdir, timeoutMs: 30_000 })
