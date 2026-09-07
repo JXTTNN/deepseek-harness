@@ -324,6 +324,69 @@ type TeamMemoryEntry = {
   ts: string
 }
 
+// ── team_memory search scoring (BM25-lite, fully offline) ────────────────
+// Classical IR ranking: term frequency saturating with k1, inverse document
+// frequency over the memory's own keys, and a doc-length normalization so the
+// model can rank recall hits on a shared memory of any size. Pure functions,
+// no network, no model download (see research-notes/component-landscape*.md
+// on why this replaces an embedding pipeline for this scale).
+
+/** English stopwords contribute no ranking signal; drop them before scoring. */
+const MEMORY_STOPWORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'in',
+  'is', 'it', 'its', 'of', 'on', 'or', 'that', 'the', 'to', 'was', 'will', 'with',
+])
+
+/** Lowercase alnum tokens with stopwords removed. */
+export function tokenizeForMemory(text: string): string[] {
+  return text.toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 1 && !MEMORY_STOPWORDS.has(t))
+}
+
+/** BM25 parameters (Robertson/Jones classics): tf saturation + length norm. */
+const BM25_K1 = 1.5
+const BM25_B = 0.75
+
+/**
+ * Rank memory entries against a query. Deterministic, small enough to be O(N)
+ * per query over the whole memory (fine at this scale).
+ *
+ * @param query - free-text search query.
+ * @param entries - the memory's current entries (latest per key)).
+ * @returns the top hits, best score first, with a capped `score` field.
+ */
+export function rankMemoryEntries(query: string, entries: TeamMemoryEntry[]): Array<TeamMemoryEntry & { score: number }> {
+  const qTokens = tokenizeForMemory(query)
+  if (qTokens.length === 0 || entries.length === 0) return []
+  const docs = entries.map(e => tokenizeForMemory(`${e.key} ${e.value}`))
+  const df = new Map<string, number>()
+  for (const toks of docs) {
+    for (const t of new Set(toks)) df.set(t, (df.get(t) ?? 0) + 1)
+  }
+  const N = docs.length
+  const avgLen = docs.reduce((acc, d) => acc + d.length, 0) / Math.max(1, N)
+  const scored: Array<TeamMemoryEntry & { score: number }> = []
+  for (let i = 0; i < entries.length; i++) {
+    const toks = docs[i] ?? []
+    const freq = new Map<string, number>()
+    for (const t of toks) freq.set(t, (freq.get(t) ?? 0) + 1)
+    const lenNorm = 1 - BM25_B + (BM25_B * toks.length) / Math.max(1, avgLen)
+    let score = 0
+    for (const t of qTokens) {
+      const f = freq.get(t) ?? 0
+      if (f === 0) continue
+      const dfN = df.get(t) ?? 0
+      const idf = Math.log(1 + (N - dfN + 0.5) / (dfN + 0.5))
+      score += idf * ((f * (BM25_K1 + 1)) / (f + BM25_K1 * lenNorm))
+    }
+    if (score > 0) {
+      const entry = entries[i]
+      if (entry !== undefined) scored.push({ ...entry, score })
+    }
+  }
+  scored.sort((a, b) => b.score - a.score)
+  return scored
+}
+
 /** One fan-out broadcast record kept for later fan-in collection. */
 interface TeamBroadcast {
   broadcastId: string
@@ -554,7 +617,7 @@ export function apply(ctx: Context): void {
     name: 'team:state',
     order: 0,
     text: () => {
-      return 'TEAM STATE: You are in a team. Call team_inbox EVERY turn to check for messages. Call team_list to discover peers. Use team_send to communicate. If you receive a message, you MUST reply to the sender with team_send(reply_to: msgId). To make the team greater than one agent, share a task board with team_task (priority/deadline/assignee + auto-notify), persist decisions with team_memory, fan work out to every peer with team_broadcast + team_collect, verify results independently with team_review + team_review_collect, synchronize phases with team_barrier, and get a one-shot health snapshot with team_status.'
+      return 'TEAM STATE: You are in a team. Call team_inbox EVERY turn to check for messages. Call team_list to discover peers. Use team_send to communicate. If you receive a message, you MUST reply to the sender with team_send(reply_to: msgId). To make the team greater than one agent, share a task board with team_task (priority/deadline/assignee + auto-notify), persist decisions with team_memory (and recall topics with team_memory action=search), fan work out to every peer with team_broadcast + team_collect, verify results independently with team_review + team_review_collect, synchronize phases with team_barrier, and get a one-shot health snapshot with team_status.'
     },
   })
 
@@ -1699,16 +1762,28 @@ export function apply(ctx: Context): void {
     description:
       'Shared durable key-value memory (.team/memory.jsonl) visible to every team session. '
       + 'Actions: set (store a fact/decision under a key), get (read the latest value), list (all entries), delete. '
+      + 'search (query: free text; ranked recall over ALL entries — use this when you know the topic but not the exact key). '
       + 'Use it to persist decisions and facts so peers do not re-derive or re-transmit context.',
     parameters: {
-      action: { type: 'string', required: true, enum: ['set', 'get', 'list', 'delete'], description: 'Which memory operation to run.' },
+      action: { type: 'string', required: true, enum: ['set', 'get', 'list', 'delete', 'search'], description: 'Which memory operation to run.' },
       key: { type: 'string', description: 'Memory key (set/get/delete).' },
       value: { type: 'string', description: 'Value to store (set).' },
+      query: { type: 'string', description: 'Free-text search query (search).' },
+      limit: { type: 'number', description: 'Max search hits to return (search; default 8).' },
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
       render: (_args, value) => {
-        const v = value as unknown as { ok: boolean; key?: string; value?: string; entries?: TeamMemoryEntry[] }
+        const v = value as unknown as { ok: boolean; key?: string; value?: string; entries?: TeamMemoryEntry[]; query?: string }
+        if (v.entries !== undefined && v.query !== undefined) {
+          const hits = v.entries
+          return [{
+            type: 'text' as const,
+            text: hits.length === 0
+              ? `No memory entries matched "${v.query}".`
+              : hits.map(e => `  • ${e.key} = ${e.value.slice(0, 160)}`).join('\n'),
+          }]
+        }
         if (v.entries !== undefined) {
           return [{ type: 'text' as const, text: v.entries.length === 0 ? 'No memory entries.' : v.entries.map(e => `  • ${e.key} = ${e.value.slice(0, 160)}`).join('\n') }]
         }
@@ -1751,6 +1826,17 @@ export function apply(ctx: Context): void {
           if (key.length === 0) throw new Error('team_memory delete: key is required')
           return lockedUpdate<TeamMemoryEntry>(file, entries => entries.filter(e => e.key !== key))
             .then(() => ({ ok: true, key }))
+        }
+        case 'search': {
+          const query = (args.query ?? '').trim()
+          if (query.length === 0) throw new Error('team_memory search: query is required')
+          const latest = new Map<string, TeamMemoryEntry>()
+          for (const e of readJsonl<TeamMemoryEntry>(file)) latest.set(e.key, e)
+          const clamped = typeof args.limit === 'number' && Number.isFinite(args.limit)
+            ? Math.min(Math.max(Math.trunc(args.limit), 1), 50)
+            : 8
+          const hits = rankMemoryEntries(query, [...latest.values()]).slice(0, clamped)
+          return Promise.resolve({ ok: true, query, entries: hits })
         }
         default:
           throw new Error(`team_memory: unknown action "${String(args.action)}"`)

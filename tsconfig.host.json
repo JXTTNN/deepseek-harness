@@ -233,6 +233,7 @@
     { "path": "./packages/web/web-search-ddg" },
     { "path": "./packages/web/web-search-responses" },
     { "path": "./packages/web/web-fetch-http" },
+    { "path": "./packages/web/web-fetch-md" },
     { "path": "./packages/web/tool-web" },
     { "path": "./packages/spill/spill" },
     { "path": "./packages/spill/spill-local" },
