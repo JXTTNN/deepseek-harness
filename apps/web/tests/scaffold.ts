@@ -701,13 +701,18 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * @returns the realized fixture text.
  */
 export function realizeSeedFixture(scaffold: WebScaffold, fixtureText: string, id: string): string {
+  // Session logs are JSONL: a scaffold cwd with JSON-meaningful characters
+  // (any Windows path — every backslash) must enter the fixture text already
+  // escaped, or the substituted lines fail to parse. JSON.stringify's outer
+  // quotes are stripped so the value drops into an existing string slot.
+  const cwdJson = JSON.stringify(scaffold.workspaceCwd).slice(1, -1)
   const realized = fixtureText
     .split('{{sessionId}}').join(id)
-    .split('{{cwd}}').join(scaffold.workspaceCwd)
+    .split('{{cwd}}').join(cwdJson)
   const fixtureCwd = (JSON.parse(realized.split('\n', 1)[0]!) as { cwd?: string }).cwd
-  return fixtureCwd === undefined
-    ? realized
-    : realized.split(fixtureCwd).join(scaffold.workspaceCwd)
+  if (fixtureCwd === undefined) return realized
+  const fixtureCwdJson = JSON.stringify(fixtureCwd).slice(1, -1)
+  return realized.split(fixtureCwdJson).join(cwdJson).split(fixtureCwd).join(cwdJson)
 }
 
 export async function seedSession(
