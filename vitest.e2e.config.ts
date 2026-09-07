@@ -1,5 +1,5 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import { standardDecoratorPlugin, vitestExecArgv } from './vitest.shared.ts'
 
 // Real-API suite, separate because it spends tokens. Each test self-skips without
@@ -28,6 +28,34 @@ function positiveIntFromEnv(name: string, fallback: number): number {
 
 const e2eMaxWorkers = positiveIntFromEnv('DSH_E2E_MAX_WORKERS', DEFAULT_E2E_MAX_WORKERS)
 
+/**
+ * Suites in this list assert behavior only the OFFICIAL DeepSeek API
+ * guarantees: fixed v4-flash/v4-pro model ids, thinking-effort mappings,
+ * prefix-cache hit accounting, or CLI bridges pinned to the official base
+ * URL (the claude-code suite throws on any other URL). A custom
+ * $DEEPSEEK_BASE_URL (e.g. a gateway with aliased models and no cache
+ * accounting) makes those assertions unsatisfiable, so the suites are
+ * skipped rather than red on a forked deployment. Generic agent-flow e2e
+ * (fs, shell, headless, web) keeps running against whatever endpoint is
+ * configured.
+ */
+const OFFICIAL_BASE_URL = 'https://api.deepseek.com'
+const configuredBaseUrl = (process.env.DEEPSEEK_BASE_URL ?? OFFICIAL_BASE_URL).replace(/\/+$/, '')
+const isOfficialEndpoint = configuredBaseUrl === OFFICIAL_BASE_URL
+const OFFICIAL_ONLY_SUITES = [
+  'packages/llm/llm-deepseek/tests/adapter.e2e.ts',
+  'packages/llm/llm-pi-ai/tests/adapter.e2e.ts',
+  'packages/core/agent-loop/tests/request-cache.e2e.ts',
+  'packages/subagent/subagent-claude-code/tests/real-deepseek.e2e.ts',
+  'packages/subagent/subagent-codex/tests/real-deepseek.e2e.ts',
+]
+if (!isOfficialEndpoint) {
+  console.warn(
+    `[e2e] DEEPSEEK_BASE_URL=${configuredBaseUrl} is not the official API;`
+    + ` skipping official-only suites: ${OFFICIAL_ONLY_SUITES.join(', ')}`,
+  )
+}
+
 export default defineConfig({
   // Same resolution note as vitest.config.ts: bare workspace names resolve
   // through the tsconfig.base.json paths facade (no include = match-all, so
@@ -43,6 +71,7 @@ export default defineConfig({
     // apps/cli only, not apps/*: apps/web/tests/*.e2e.ts needs the built
     // frontend dist and runs under vitest.web.config.ts (the test:web job).
     include: ['packages/*/*/tests/**/*.e2e.ts', 'apps/cli/tests/**/*.e2e.ts', 'examples/*/tests/**/*.e2e.ts'],
+    exclude: [...configDefaults.exclude, ...(isOfficialEndpoint ? [] : OFFICIAL_ONLY_SUITES)],
     // Real model calls: generous timeouts, and retries for transient flakes
     // (the shared internal key hits concurrency quotas). No coverage — the
     // unit suites own the coverage gate.
