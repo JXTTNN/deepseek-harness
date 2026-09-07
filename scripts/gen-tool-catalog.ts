@@ -63,6 +63,7 @@ import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
 import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
+import * as ToolGithub from '@deepseek-ai/dsh-tool-github'
 import { githubSlug } from './verify-md-links.ts'
 
 /** Attachment seam marker that makes the attachments-conditional `read_image` schema harvestable. */
@@ -550,6 +551,19 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-github',
+    dir: 'tool-github',
+    source: 'packages/github/tool-github/src/index.ts',
+    requires: ['ctx.tools', 'a GitHub token at execution time (GITHUB_TOKEN or ~/.dsh/.credentials.yaml)'],
+    writes: ['tool/call', 'tool/result', 'remote GitHub issues and pull requests'],
+    async mount(ctx) {
+      // Registration is keyless: the token resolves only when a call executes.
+      await ctx.plugin(ToolGithub)
+    },
+    note:
+      'GitHub REST tools shipped by the standard and team agent presets; issue and PR creation mutate the remote repository. The schema harvest needs no credential because the token is read at execution time, not at registration.',
   },
 ]
 

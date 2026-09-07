@@ -79,9 +79,18 @@ describe('publishableImage', () => {
     const outside = mkdtempSync(join(tmpdir(), 'dsh-doc-site-outside-'))
     roots.push(outside)
     writeFileSync(join(outside, 'secret.png'), 'not really a png\n')
-    symlinkSync(join(outside, 'secret.png'), join(root, 'packages/linked.png'))
+    // Windows file symlinks require elevated privilege; a directory junction
+    // escapes realpath containment identically without it.
+    let linked: string
+    if (process.platform === 'win32') {
+      symlinkSync(outside, join(root, 'packages/linked'), 'junction')
+      linked = join(root, 'packages/linked', 'secret.png')
+    } else {
+      symlinkSync(join(outside, 'secret.png'), join(root, 'packages/linked.png'))
+      linked = join(root, 'packages/linked.png')
+    }
 
-    expect(publishableImage(join(root, 'packages/linked.png'), realpathSync(root))).toBeUndefined()
+    expect(publishableImage(linked, realpathSync(root))).toBeUndefined()
     expect(publishableImage(join(outside, 'secret.png'), realpathSync(root))).toBeUndefined()
   })
 

@@ -39,6 +39,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-todo` | `todo_write` | `ctx.tools`, `owning Agent session` | `tool/call`, `todo/write`, `tool/result` | - | todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task. |
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
+| `@deepseek-ai/dsh-tool-github` | `github_file_read`, `github_issue_create`, `github_issue_list`, `github_pr_create`, `github_search_code` | `ctx.tools`, `a GitHub token at execution time (GITHUB_TOKEN or ~/.dsh/.credentials.yaml)` | `tool/call`, `tool/result`, `remote GitHub issues and pull requests` | - | GitHub REST tools shipped by the standard and team agent presets; issue and PR creation mutate the remote repository. The schema harvest needs no credential because the token is read at execution time, not at registration. |
 
 <a id="deepseek-aidsh-tool-ask-user"></a>
 
@@ -1871,3 +1872,209 @@ Search the web for current information. Returns an optional summary answer and a
 Source: [`packages/web/tool-web/src/index.ts`](../packages/web/tool-web/src/index.ts)
 
 web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.
+
+<a id="deepseek-aidsh-tool-github"></a>
+
+## `@deepseek-ai/dsh-tool-github`
+
+### `github_file_read`
+
+Read a file from a GitHub repository. Use this to inspect code, documentation, or configuration in any public or accessible private repo without cloning.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": "Repository owner."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository name."
+    },
+    "path": {
+      "type": "string",
+      "description": "File path relative to repo root."
+    },
+    "ref": {
+      "type": "string",
+      "description": "Branch name, tag, or commit SHA. Defaults to the default branch."
+    }
+  },
+  "required": [
+    "owner",
+    "repo",
+    "path"
+  ]
+}
+```
+
+Source: [`packages/github/tool-github/src/index.ts`](../packages/github/tool-github/src/index.ts)
+
+### `github_issue_create`
+
+Create a GitHub issue. Use this to track tasks, report bugs, or document work items. The issue becomes a durable task record that persists across sessions.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org)."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository name."
+    },
+    "title": {
+      "type": "string",
+      "description": "Issue title."
+    },
+    "body": {
+      "type": "string",
+      "description": "Issue body (markdown)."
+    },
+    "labels": {
+      "type": "array",
+      "description": "Optional labels.",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "owner",
+    "repo",
+    "title",
+    "body"
+  ]
+}
+```
+
+Source: [`packages/github/tool-github/src/index.ts`](../packages/github/tool-github/src/index.ts)
+
+### `github_issue_list`
+
+List GitHub issues. Use this to see the team's task board, check progress, or find tasks to work on.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": "Repository owner."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository name."
+    },
+    "state": {
+      "type": "string",
+      "description": "Filter by state. Defaults to open.",
+      "enum": [
+        "open",
+        "closed",
+        "all"
+      ]
+    },
+    "labels": {
+      "type": "string",
+      "description": "Comma-separated label filter."
+    },
+    "per_page": {
+      "type": "integer",
+      "description": "Results per page (max 100). Default 30."
+    }
+  },
+  "required": [
+    "owner",
+    "repo"
+  ]
+}
+```
+
+Source: [`packages/github/tool-github/src/index.ts`](../packages/github/tool-github/src/index.ts)
+
+### `github_pr_create`
+
+Create a GitHub pull request. Use this to submit code changes for review. The PR becomes a durable record of the work.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "owner": {
+      "type": "string",
+      "description": "Repository owner."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository name."
+    },
+    "title": {
+      "type": "string",
+      "description": "PR title."
+    },
+    "body": {
+      "type": "string",
+      "description": "PR description (markdown)."
+    },
+    "head": {
+      "type": "string",
+      "description": "The branch with your changes."
+    },
+    "base": {
+      "type": "string",
+      "description": "The branch to merge into (e.g. main)."
+    }
+  },
+  "required": [
+    "owner",
+    "repo",
+    "title",
+    "body",
+    "head",
+    "base"
+  ]
+}
+```
+
+Source: [`packages/github/tool-github/src/index.ts`](../packages/github/tool-github/src/index.ts)
+
+### `github_search_code`
+
+Search code across GitHub. Use this to find implementations, examples, or references in any public repository.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "q": {
+      "type": "string",
+      "description": "Search query (same syntax as GitHub code search)."
+    },
+    "owner": {
+      "type": "string",
+      "description": "Restrict to a specific owner."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Restrict to a specific repo (requires owner)."
+    },
+    "per_page": {
+      "type": "integer",
+      "description": "Results per page (max 100). Default 30."
+    }
+  },
+  "required": [
+    "q"
+  ]
+}
+```
+
+Source: [`packages/github/tool-github/src/index.ts`](../packages/github/tool-github/src/index.ts)
+
+GitHub REST tools shipped by the standard and team agent presets; issue and PR creation mutate the remote repository. The schema harvest needs no credential because the token is read at execution time, not at registration.
