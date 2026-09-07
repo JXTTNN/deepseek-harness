@@ -32,6 +32,13 @@ const BUGGY_ADD = [
   '',
 ].join('\n')
 
+/** Print the tail of a session's events when the final answer never arrived. */
+function dumpTail(events: readonly unknown[], tag: string): void {
+  const tail = events.slice(-15)
+  console.error(`[e2e-dump:${tag}] last ${tail.length} events:`)
+  for (const e of tail) console.error(`[e2e-dump:${tag}] ${JSON.stringify(e)?.slice(0, 1500)}`)
+}
+
 let workdir: string | undefined
 let ctx: Context | undefined
 
@@ -68,6 +75,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('coding task: fix a failing test 
 
     // The agent claims success…
     const summary = finalText([...agent.session.events]).toLowerCase()
+    if (summary.length === 0) dumpTail([...agent.session.events], 'coding-task')
     expect(summary.length).toBeGreaterThan(0)
 
     // …and the world agrees: the test passes when WE run it, and the test

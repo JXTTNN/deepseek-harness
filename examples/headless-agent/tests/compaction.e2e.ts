@@ -7,6 +7,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import { codingHarness, finalText, SYSTEM_PROMPT, waitForIdle } from './harness.ts'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
+/** Print the tail of a session's events when compaction never fired. */
+function dumpTail(events: readonly unknown[], tag: string): void {
+  const tail = events.slice(-15)
+  console.error(`[e2e-dump:${tag}] last ${tail.length} events:`)
+  for (const e of tail) console.error(`[e2e-dump:${tag}] ${JSON.stringify(e)?.slice(0, 1500)}`)
+}
+
 /**
  * Key-gated smoke for mid-session compaction. It verifies the compact event
  * pair, replacement of older surface nodes, and a final answer after compaction.
@@ -63,6 +70,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
     // A compaction ran: the start…end bracket landed in the real log.
     const starts = events.filter(e => e.type === 'compaction/start')
     const ends = events.filter(e => e.type === 'compaction/end')
+    if (starts.length === 0) dumpTail([...agent.session.events], 'compaction')
     expect(starts.length).toBeGreaterThan(0)
     expect(ends.length).toBe(starts.length) // every start was released
 
