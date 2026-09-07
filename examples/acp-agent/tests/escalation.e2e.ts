@@ -14,6 +14,7 @@ import {
   type LaunchedAcpTestAgent,
 } from '@deepseek-ai/dsh-acp-snapshot'
 import { cleanupAcpExampleTest } from './cleanup.ts'
+import { dumpSessionTail } from './session-dump.ts'
 
 /**
  * The default ACP composition (`cordis.yml`) end to end.
@@ -127,13 +128,19 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox co
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
-    const res = await client.prompt({
-      sessionId,
-      prompt: [{
-        type: 'text',
-        text: `${escalationPrompt(join(workdir, 'escalated.txt'), 'ACP_ESCALATION_OK')} Then stop.`,
-      }],
-    })
+    let res
+    try {
+      res = await client.prompt({
+        sessionId,
+        prompt: [{
+          type: 'text',
+          text: `${escalationPrompt(join(workdir, 'escalated.txt'), 'ACP_ESCALATION_OK')} Then stop.`,
+        }],
+      })
+    } catch (error) {
+      await dumpSessionTail(sessionId)
+      throw error
+    }
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
     expect(updates.every(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
 
@@ -150,7 +157,10 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox co
     expect(prompt.sessionId).toBe(sessionId)
     expect(typeof prompt.toolCall.toolCallId).toBe('string')
     expect(prompt.options.map(o => o.optionId).sort()).toEqual(['allow-once', 'reject-once'])
-  }, 240_000)
+    // Rate-limited gateways stretch each model hop to tens of seconds; the
+    // deny-escalate-allow flow takes about five hops and cannot fit into a
+    // 240s budget there (run 34087293815 remnant analysis).
+  }, 480_000)
 
   it('a rejected escalation stays denied: no write lands, the turn still ends', async () => {
     workdir = await mkdtemp(join(tmpdir(), 'sandbox-acp-e2e-'))
@@ -159,13 +169,19 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox co
 
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
-    const res = await client.prompt({
-      sessionId,
-      prompt: [{
-        type: 'text',
-        text: `${escalationPrompt(join(workdir, 'refused.txt'), 'NO')} If approval is rejected, stop and say so.`,
-      }],
-    })
+    let res
+    try {
+      res = await client.prompt({
+        sessionId,
+        prompt: [{
+          type: 'text',
+          text: `${escalationPrompt(join(workdir, 'refused.txt'), 'NO')} If approval is rejected, stop and say so.`,
+        }],
+      })
+    } catch (error) {
+      await dumpSessionTail(sessionId)
+      throw error
+    }
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
     expect(updates.every(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
 
@@ -173,5 +189,5 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || !hasRunner)('default sandbox co
     await expect(readFile(join(workdir, 'refused.txt'), 'utf8')).rejects.toThrow()
     // And the rejection flowed through the machine-policy channel.
     expect(permissionRequests.length).toBeGreaterThan(0)
-  }, 240_000)
+  }, 480_000)
 })

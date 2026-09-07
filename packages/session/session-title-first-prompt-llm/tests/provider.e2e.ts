@@ -30,7 +30,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('first-prompt title provider with
       targetCjkCharacters: 10,
       maxInputBytes: 4_096,
       maxOutputTokens: 64,
-      timeoutMs: 60_000,
+      // Non-official gateways queue congested retries sometimes; one title
+      // request facing a 429 storm needs the doubled budget.
+      timeoutMs: 120_000,
       provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
     })

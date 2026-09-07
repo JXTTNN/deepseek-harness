@@ -10,6 +10,7 @@ import {
   type LaunchedAcpTestAgent,
 } from '@deepseek-ai/dsh-acp-snapshot'
 import { cleanupAcpExampleTest } from './cleanup.ts'
+import { dumpSessionTail } from './session-dump.ts'
 
 /**
  * With-key e2e for the Claude hook bridge. The process-level `./hooks.json` is
@@ -54,10 +55,18 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook
     await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await client.newSession({ cwd: workdir, mcpServers: [] })
 
-    const res = await client.prompt({
-      sessionId,
-      prompt: [{ type: 'text', text: 'Use the bash tool to write the exact text HOOK_FAIL into a file named proof.txt in the current directory. Then stop.' }],
-    })
+    // On failure the session tail is the only window into whether the model
+    // kept retrying denied bash or was starved by gateway rate limits.
+    let res
+    try {
+      res = await client.prompt({
+        sessionId,
+        prompt: [{ type: 'text', text: 'Use the bash tool to write the exact text HOOK_FAIL into a file named proof.txt in the current directory. Then stop.' }],
+      })
+    } catch (error) {
+      await dumpSessionTail(sessionId)
+      throw error
+    }
     // The turn completes normally (the block is a tool-result error fed back to
     // the model, not a turn failure).
     expect(['end_turn', 'max_tokens']).toContain(res.stopReason)
@@ -68,5 +77,5 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('acp-agent e2e: a PreToolUse hook
     // ACP publishes only the committed answer; hook/tool trace stays in the session log.
     expect(updates.length).toBeGreaterThan(0)
     expect(updates.every(update => update.sessionUpdate === 'agent_message_chunk')).toBe(true)
-  }, 180_000)
+  }, 360_000)
 })

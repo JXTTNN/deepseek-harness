@@ -23,7 +23,11 @@ describe.skipIf(!hasKey)('headless-agent with real model', () => {
         'Read task.txt, replace its complete contents with exactly "value=after" followed by a newline, read it again, and report briefly.',
       ],
       tsconfigPath,
-      processTimeoutMs: 120_000,
+      // Rate-limited gateways stretch each model round-trip well beyond the
+      // official endpoint's seconds (compounding retries push a step past
+      // 60s — analyze run 34087293815 remnants), so the 3-step task needs a
+      // 5-minute watchdog, not 120s.
+      processTimeoutMs: 300_000,
       prepare: cwd => writeFile(join(cwd, 'task.txt'), 'value=before\n'),
       inspect: async (cwd) => { verified = await readFile(join(cwd, 'task.txt'), 'utf8') },
     })
@@ -32,5 +36,5 @@ describe.skipIf(!hasKey)('headless-agent with real model', () => {
     // character exact — the write/read round trip stays fully verified.
     expect(verified.replace(/\n$/, '')).toBe('value=after')
     expect(stdout.trim().length).toBeGreaterThan(0)
-  }, 135_000)
+  }, 315_000)
 })

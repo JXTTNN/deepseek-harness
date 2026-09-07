@@ -122,6 +122,10 @@ jobs:
           # upstream DEEPSEEK_API_KEY_EXTERNAL convention is not configured.
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL || secrets.DSH_API_KEY || secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK_BASE_URL: ${{ secrets.DSH_BASE_URL || secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
-          DSH_E2E_MAX_WORKERS: 14
+          # 网关每 key 20 req/min 硬限流（run 34087293815 根因表）；14 并发
+          # 把 reasoning-max 的多跳请求挤到 42–62s/step 并打挂重试链。
+          # 回到 vitest.e2e.config.ts 的默认 4 worker：不出现集中拥塞又保住
+          # ~30 分钟的完成预算（2 并发能把整组推过 60m 超时线）。
+          DSH_E2E_MAX_WORKERS: 4
           DSH_EXAMPLE_MODE: lib
         run: pnpm run test:e2e
