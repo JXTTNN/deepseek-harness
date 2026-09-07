@@ -22,6 +22,13 @@ const PROBE = 'banana-271828'
 const NESTED_PROBE = 'papaya-314159'
 const UPDATED_PROBE = 'guava-161803'
 
+/** Print the tail of a session's events when an assertion's probe went missing. */
+function dumpTail(events: readonly unknown[], tag: string): void {
+  const tail = events.slice(-15)
+  console.error(`[e2e-dump:${tag}] last ${tail.length} events:`)
+  for (const e of tail) console.error(`[e2e-dump:${tag}] ${JSON.stringify(e)?.slice(0, 1500)}`)
+}
+
 let ctx: Context | undefined
 let workdir: string | undefined
 
@@ -94,7 +101,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
     live.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Use the read tool to inspect pkg/deep/file.txt. After reading it, answer: nested instruction handshake?' }], source: { kind: 'user' } }))
     await waitForIdle(live.ctx, live.agent)
 
-    expect(finalText([...live.agent.session.events])).toContain(NESTED_PROBE)
+    const text = finalText([...live.agent.session.events])
+    if (!text.includes(NESTED_PROBE)) dumpTail([...live.agent.session.events], 'nested-probe')
+    expect(text).toContain(NESTED_PROBE)
   }, 360_000)
 
   it('appends changed baseline instructions after a real file-tool touch without rewriting the frozen prefix', async () => {
@@ -118,6 +127,8 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('workspace context e2e: real mode
       ? update.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
       : ''
     expect(updateText).toContain('Updated instructions from: AGENTS.md')
-    expect(finalText(events)).toContain(UPDATED_PROBE)
+    const final = finalText(events)
+    if (!final.includes(UPDATED_PROBE)) dumpTail(events, 'updated-probe')
+    expect(final).toContain(UPDATED_PROBE)
   }, 360_000)
 })

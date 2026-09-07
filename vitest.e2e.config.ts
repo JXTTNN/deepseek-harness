@@ -48,6 +48,10 @@ const OFFICIAL_ONLY_SUITES = [
   'packages/core/agent-loop/tests/request-cache.e2e.ts',
   'packages/subagent/subagent-claude-code/tests/real-deepseek.e2e.ts',
   'packages/subagent/subagent-codex/tests/real-deepseek.e2e.ts',
+  // workflow-worker-thread drives a schema-forced (structured-output) child;
+  // gateways that only speak chat completions return null judged objects
+  // (run 34106273380). That pass criterion cannot hold off the official API.
+  'packages/workflow/workflow-worker-thread/tests/workflow-worker-thread.e2e.ts',
 ]
 if (!isOfficialEndpoint) {
   console.warn(

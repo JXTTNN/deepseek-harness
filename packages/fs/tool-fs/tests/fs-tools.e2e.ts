@@ -3,9 +3,21 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { access } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { fsHarness, waitForIdle } from './harness.ts'
+
+/** Print the tail of any session-event iterable as compact JSON Lines. */
+function dumpTail(events: readonly unknown[], tag: string): void {
+  const tail = events.slice(-15)
+  console.error(`[e2e-dump:${tag}] last ${tail.length} events:`)
+  for (const e of tail) console.error(`[e2e-dump:${tag}] ${JSON.stringify(e)?.slice(0, 1500)}`)
+}
+
+/** Filesystem-exists probe without the deprecated existential exceptions. */
+const isThere = async (path: string): Promise<boolean> =>
+  access(path).then(() => true, () => false)
 
 /** Key-gated smoke for a real model driving the local read/write/edit tools. */
 
@@ -37,6 +49,13 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
       + 'Tell me when done.' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
+    // Gateways that reason-max every hop make the prompt collapse silently;
+    // dump the session tail on failure so the cause classifies itself.
+    if (!await isThere(join(workdir, 'note.txt'))) {
+      dumpTail([...agent.session.events], 'fs-tools/create')
+      throw new Error('model never wrote note.txt — see [e2e-dump] above')
+    }
+
     // Assert the filesystem effect independently of the model response.
     const content = await readFile(join(workdir, 'note.txt'), 'utf8')
     expect(content).toContain('status: final')
@@ -67,6 +86,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('fs tools with-key smoke', () => 
         content: [{ type: 'text', text:
         'Use the write tool to create a file named where.txt containing exactly the line: here. Tell me when done.' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
+
+      if (!await isThere(join(sessionDir, 'where.txt'))) {
+        dumpTail([...handle.agent.session.events], 'fs-tools/cwd')
+        throw new Error('model never wrote where.txt — see [e2e-dump] above')
+      }
 
       // The file is in the SESSION dir, not the config dir.
       expect(await readFile(join(sessionDir, 'where.txt'), 'utf8')).toContain('here')

@@ -41,7 +41,9 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('compaction: a long session compa
         summarizationProvider: '',
         summarizationModel: '',
         maxTokens: 1024,
-        compactionRetries: 1,
+        // One summarizer attempt is too fragile against a 20-req/min gateway:
+        // a single 429 erases the summary event (run 34087293815 remnant 3).
+        compactionRetries: 3,
       },
       persistenceRoot: join(workdir, '.sessions'),
     })
