@@ -18,7 +18,31 @@ import type {} from '@deepseek-ai/dsh-agent'
 export const name = 'tool-github'
 export const inject = ['tools']
 
-const API = 'https://api.github.com'
+/** Default GitHub API endpoint. Supports full GitHub Enterprise URL customization. */
+const DEFAULT_GITHUB_API = 'https://api.github.com'
+
+/**
+ * Resolve the GitHub API base URL.
+ * Priority: GITHUB_API_URL env > DSH_GITHUB_API env > default github.com
+ *
+ * Set GITHUB_API_URL to use GitHub Enterprise, a corporate mirror,
+ * or any REST-compatible Git hosting API (Gitea, GitLab CE, Codeberg, etc.).
+ */
+function resolveApiBase(): string {
+  const customApi = process.env.GITHUB_API_URL ?? process.env.DSH_GITHUB_API
+  return (customApi ?? DEFAULT_GITHUB_API).replace(/\/+$/, '')
+}
+
+/** Cache for resolved API base URL */
+let API_BASE: string | undefined
+
+/** Get the GitHub API base URL (cached after first call) */
+function getApiBase(): string {
+  if (API_BASE === undefined) {
+    API_BASE = resolveApiBase()
+  }
+  return API_BASE
+}
 
 /** Resolve the GitHub token from env or credentials. */
 function token(): string {
@@ -34,9 +58,10 @@ function token(): string {
   throw new Error('GITHUB_TOKEN not set. Set it as an environment variable or add it to ~/.dsh/.credentials.yaml')
 }
 
-/** Call GitHub REST API. */
+/** Call GitHub REST API. Uses custom API endpoint when GITHUB_API_URL is set. */
 async function gh(path: string, init?: RequestInit & { method?: string; body?: string }): Promise<any> {
-  const url = `${API}${path}`
+  const apiBase = getApiBase()
+  const url = `${apiBase}${path}`
   const res = await fetch(url, {
     ...init,
     headers: {

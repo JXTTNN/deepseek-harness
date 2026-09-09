@@ -10,13 +10,35 @@ import type { JsonValue, ContentBlock } from '@deepseek-ai/cordis'
 export const name = 'plugin-3d-viewer'
 export const inject = ['skill', 'tools']
 
+/**
+ * 3D Viewer Configuration - supports custom API endpoints
+ * Set MESHY_API_KEY / MESHY_API_URL env vars for full API access,
+ * or configure via cordis.yml plugin config.
+ */
 export interface D3ViewerConfig {
+  /** WebSocket port for real-time model streaming */
   wsPort?: number
+  /** Storage backend for generated models */
   storage?: 'local' | 'cloud' | 'memory'
+  /** Enable progressive mesh refinement (streaming updates) */
   progressive?: boolean
+  /** Preview quality tier */
   previewQuality?: 'thumbnail' | 'low' | 'medium' | 'high'
+  /**
+   * 3D generation API endpoint.
+   * Supports: Meshy, Tripo, Kria, or any OpenAI-compatible /v1/generate endpoint.
+   * Env override: MESHY_API_URL / THREE_API_URL
+   */
   apiEndpoint?: string
+  /** API key for the 3D generation service. Env override: MESHY_API_KEY */
   apiKey?: string
+}
+
+/** Known free-tier 3D API endpoints */
+const DEFAULT_ENDPOINTS: Record<string, string> = {
+  meshy:  'https://api.meshy.ai/v1',
+  tripomobile: 'https://api.tripomobile.com/v1/generate',
+  krea:   'https://api.krea.ai/api/v1/generate-3d',
 }
 
 export interface ModelMetadata {
@@ -38,13 +60,15 @@ class D3ViewerService extends Service {
   constructor(ctx: Context, config: D3ViewerConfig) {
     super(ctx)
     this.config = {
-      wsPort: 8310,
-      storage: 'memory',
-      progressive: true,
-      previewQuality: 'medium',
-      apiEndpoint: 'https://api.meshy.ai/v1',
-      apiKey: '',
-      ...config,
+      wsPort: config.wsPort ?? 8310,
+      storage: config.storage ?? 'memory',
+      progressive: config.progressive ?? true,
+      previewQuality: config.previewQuality ?? 'medium',
+      apiEndpoint: config.apiEndpoint
+        ?? process.env.MESHY_API_URL
+        ?? process.env.THREE_API_URL
+        ?? DEFAULT_ENDPOINTS.meshy,
+      apiKey: config.apiKey ?? process.env.MESHY_API_KEY ?? '',
     }
   }
 
