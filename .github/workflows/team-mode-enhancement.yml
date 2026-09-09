@@ -23,7 +23,7 @@ permissions:
   packages: write
 
 env:
-  PRIMARY_NODE_VERSION: '24'
+  PRIMARY_NODE_VERSION: '22'
   DSH_API_KEY: ${{ secrets.DSH_API_KEY }}
   DSH_BASE_URL: ${{ secrets.DSH_BASE_URL }}
   DSH_PORT: '3080'
@@ -325,8 +325,8 @@ jobs:
           name: e2e-evidence
           path: |
             dsh-web.log
-            ui-walkthrough-*.png 2>/dev/null
-            send-message-*.png 2>/dev/null
+            ui-walkthrough-*.png
+            send-message-*.png
           if-no-files-found: ignore
           retention-days: 7
 
@@ -334,11 +334,9 @@ jobs:
   # 7. 最终报告
   # =========================================================================
   report:
-    needs: [unit-tests, team-simulation, plugin-3d-tests, custom-api-tests]
+    needs: [unit-tests, team-simulation, plugin-3d-tests, custom-api-tests, e2e-real]
     runs-on: ubuntu-latest
     if: always()
-    outputs:
-      status: ${{ needs.report.outcome }}
     steps:
       - name: 打印测试总结
         run: |
@@ -354,4 +352,3 @@ jobs:
           └─────────────────────────────────────────────────────┘
           "
           echo "完整报告见 Actions 控制台的步骤输出日志"
-          echo "::set-output name=status::${{ needs.report.outcome }}"

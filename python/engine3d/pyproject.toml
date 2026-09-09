@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dsh-engine3d"
+version = "0.1.0"
+description = "Offline 3D geometry engine for DeepSeek Harness (no API keys needed)"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "trimesh>=4.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+engine3d = "engine3d.cli:main"
