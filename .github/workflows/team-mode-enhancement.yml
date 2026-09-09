@@ -116,8 +116,8 @@ jobs:
           echo "  场景: 全流程协作"
           echo "  最大智能体数: $MAX_AGENTS"
 
-          # 运行团队模拟测试脚本
-          node scripts/test/run-team-simulation.ts \
+          # 运行团队模拟测试脚本 (使用 tsx 运行 TypeScript)
+          pnpm exec tsx scripts/test/run-team-simulation.ts \
             --scenario=full-suite \
             --max-agents=$MAX_AGENTS
 
@@ -235,10 +235,10 @@ jobs:
       - name: 启动自定义 API 网关
         run: |
           echo "🚀 启动 Custom API Gateway Mock 服务"
-          timeout 10 node scripts/test/custom-api-gateway.ts &
-          GATEWAY_PID=\$!
-          sleep 2
-          echo "GATEWAY_PID=\$GATEWAY_PID" >> $GITHUB_ENV
+          pnpm exec tsx scripts/test/custom-api-gateway.ts &
+          GATEWAY_PID=$!
+          sleep 3
+          echo "GATEWAY_PID=$GATEWAY_PID" >> $GITHUB_ENV
           disown
 
       - name: 验证 API 配置
@@ -246,8 +246,8 @@ jobs:
           echo "🚀 验证 Custom API 配置"
           
           # 检查端点配置
-          ENDPOINTS=\$(curl -s http://localhost:3002/v1/endpoints 2>/dev/null | jq -r '.endpoints[].id' 2>/dev/null || echo "deepseek openai anthropic custom-gateway")
-          echo "  ✓ 配置的端点: \$ENDPOINTS"
+          ENDPOINTS=$(curl -s http://localhost:3002/v1/endpoints 2>/dev/null | jq -r '.endpoints[].id' 2>/dev/null || echo "deepseek openai anthropic custom-gateway")
+          echo "  ✓ 配置的端点: $ENDPOINTS"
           
           # 健康检查
           curl -s http://localhost:3002/health | grep -q "ok" && echo "  ✓ Gateway 健康" || echo "  ⚠ Gateway 未响应"
