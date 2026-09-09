@@ -259,25 +259,40 @@ jobs:
     needs: [team-simulation, plugin-3d-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: ${{ secrets.DSH_API_KEY != '' }}
     steps:
+      - name: 检查 API Key 是否配置
+        id: api-check
+        run: |
+          if [ -n "${{ secrets.DSH_API_KEY }}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "准备跳过实战 E2E 测试（未配置 DSH_API_KEY secret）"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v6
+        if: steps.api-check.outputs.ready == 'true'
         with:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
+        if: steps.api-check.outputs.ready == 'true'
       - uses: actions/setup-node@v6
+        if: steps.api-check.outputs.ready == 'true'
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           cache: pnpm
 
       - name: Install dependencies
+        if: steps.api-check.outputs.ready == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build
+        if: steps.api-check.outputs.ready == 'true'
         run: pnpm run build
 
       - name: Start web shell
+        if: steps.api-check.outputs.ready == 'true'
         run: |
           nohup pnpm dsh web > dsh-web.log 2>&1 &
           url=""
@@ -295,24 +310,29 @@ jobs:
           exit 1
 
       - name: Smoke test - HTTP + boot
+        if: steps.api-check.outputs.ready == 'true'
         run: |
           html="$(curl -fsS "$DSH_WEB_URL/")"
           echo "$html" | grep -q '__DSH_BOOT__' && echo "✓ boot injection present"
 
       - name: Team collaboration E2E (real)
+        if: steps.api-check.outputs.ready == 'true'
         run: |
           echo "🚀 执行 Team Collaboration E2E"
           node apps/web/tests/conductor/team-collab.mjs || echo "team-collab 跳过"
 
       - name: Team delegation E2E (real)
+        if: steps.api-check.outputs.ready == 'true'
         run: |
           echo "🚀 执行 Team Delegation E2E"
           node apps/web/tests/conductor/team-delegate.mjs || echo "team-delegate 跳过"
 
       - name: Install Playwright
+        if: steps.api-check.outputs.ready == 'true'
         run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
 
       - name: E2E 实浏览器测 (best-effort)
+        if: steps.api-check.outputs.ready == 'true'
         run: |
           node apps/web/tests/conductor/ui-walkthrough.mjs || true
 
