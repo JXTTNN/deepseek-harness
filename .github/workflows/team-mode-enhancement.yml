@@ -240,7 +240,7 @@ jobs:
     needs: [team-simulation, plugin-3d-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: env.DSH_API_KEY != ''
+    if: ${{ env.DSH_API_KEY != '' && env.DSH_API_KEY != null }}
     steps:
       - uses: actions/checkout@v6
         with:
