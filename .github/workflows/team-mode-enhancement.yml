@@ -35,8 +35,6 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    outputs:
-      node_version: ${{ steps.node.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -261,7 +259,7 @@ jobs:
     needs: [team-simulation, plugin-3d-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: ${{ env.DSH_API_KEY != '' && env.DSH_API_KEY != null }}
+    if: ${{ secrets.DSH_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v6
         with:
