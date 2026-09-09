@@ -154,24 +154,45 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: 安装 Python + trimesh（离线 3D 引擎）
+        run: |
+          echo "🐍 安装 Python 3.12 + trimesh"
+          sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt-get update && sudo apt-get install -y python3.12 python3.12-venv
+          python3.12 -m venv /tmp/py312
+          /tmp/py312/bin/pip install trimesh numpy
+
       - name: 验证 3D 插件包
         run: |
           echo "🚀 验证 3D Viewer Plugin"
-          
-          # 检查插件结构
           if [ -f "packages/extensions/plugin-3d-viewer/src/index.ts" ]; then
             echo "  ✓ 插件源码存在"
           else
             echo "  ✗ 插件源码缺失"
             exit 1
           fi
-          
-          # 检查技能定义
-          if [ -f "packages/extensions/plugin-3d-viewer/skills/3d-visualization/SKILL.md" ]; then
-            echo "  ✓ 技能文档存在"
-          else
-            echo "  ⚠ 技能文档缺失"
+          if [ -f "packages/extensions/plugin-3d-viewer/src/bridge.ts" ]; then
+            echo "  ✓ bridge.ts (本地引擎桥接) 存在"
           fi
+
+      - name: 离线 3D 引擎测试（engine3d，无 API key）
+        run: |
+          echo "🧪 测试 engine3d 离线引擎"
+          cd python/engine3d
+          /tmp/py312/bin/pip install -e .
+          # 测试 info
+          echo '{"action":"info"}' | /tmp/py312/bin/python -m engine3d.cli | tee /tmp/info.json
+          python3.12 -c "import json,sys; d=json.load(open('/tmp/info.json')); assert d['ok'], d"
+
+          # 测试 build sphere
+          echo '{"action":"build","kind":"sphere","params":{"radius":2},"format":"glb"}' | /tmp/py312/bin/python -m engine3d.cli | tee /tmp/sphere.json
+          python3.12 -c "
+          import json,base64
+          d=json.load(open('/tmp/sphere.json'))
+          assert d['ok'], f'build failed: {d}'
+          data=base64.b64decode(d['data'])
+          assert len(data)>1000, f'GLB too small: {len(data)} bytes'
+          print(f'✅ GLB OK ({len(data)} bytes)')
+          "
 
       - name: 模拟 3D API 测试
         run: |
