@@ -3,10 +3,10 @@
  * select only the tests affected by a change (test selection).
  *
  * The `test_impact` tool supports three actions:
- *  - `"analyze"` 鈫?analyse the dependency relationship between changed source
+ *  - `"analyze"` → analyse the dependency relationship between changed source
  *                   files and test files (which tests import/cover which sources)
- *  - `"select"`  鈫?return the list of test files that need to run
- *  - `"map"`    鈫?generate or update the test coverage mapping file
+ *  - `"select"`  → return the list of test files that need to run
+ *  - `"map"`    → generate or update the test coverage mapping file
  *
  * The tool parses import/require statements in test files to determine which
  * source modules they exercise, then intersects with the changed file set
@@ -17,7 +17,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs'
-import { join, relative, sep, extname, basename, dirname } from 'node:path'
+import { join, relative, sep, extname, dirname } from 'node:path'
 import { execSync } from 'node:child_process'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool as _defineTool } from '@deepseek-ai/dsh-tools'
@@ -44,8 +44,6 @@ type Action = 'analyze' | 'select' | 'map'
 /** Default test file glob pattern. */
 const DEFAULT_TEST_PATTERN = '**/*.test.ts'
 
-/** Source file extensions. */
-const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py'])
 
 /** Test file indicators. */
 const TEST_INDICATORS = ['.test.', '.spec.', '_test.', '_spec.', '/tests/', '/test/']
@@ -65,7 +63,7 @@ export function apply(ctx: Context): void {
     name: 'test_impact',
     description:
       'Test impact analysis: determine which tests are affected by source '
-      + 'changes. Parses import/require statements to build a test鈫抯ource '
+      + 'changes. Parses import/require statements to build a test→source '
       + 'dependency map, intersects with git diff (or explicit changedFiles), '
       + 'and returns only the tests that need to run. Actions: "analyze" '
       + '(dependency analysis), "select" (affected test list), "map" '
@@ -105,14 +103,14 @@ export function apply(ctx: Context): void {
       // Collect all test files.
       const testFiles = findTestFiles(root, testPattern)
 
-      // Build the test鈫抯ource dependency map.
+      // Build the test→source dependency map.
       const depMap = buildDependencyMap(root, testFiles)
 
       switch (action) {
         case 'analyze':
-          return analyzeImpact(root, changedFiles, depMap)
+          return analyzeImpact(changedFiles, depMap)
         case 'select':
-          return selectTests(root, changedFiles, depMap)
+          return selectTests(changedFiles, depMap)
         case 'map':
           return updateCoverageMap(root, depMap)
         default:
@@ -138,7 +136,7 @@ function getGitDiffFiles(root: string): string[] {
     if (output.length === 0) return []
     return output.split('\n').filter(f => f.length > 0)
   } catch {
-    // Not a git repo or git unavailable 鈥?return empty.
+    // Not a git repo or git unavailable — return empty.
     return []
   }
 }
@@ -196,15 +194,15 @@ function isTestFile(name: string, rel: string): boolean {
 // Dependency map building
 // ---------------------------------------------------------------------------
 
-/** Test 鈫?source dependencies. */
+/** Test → source dependencies. */
 interface DependencyMap {
-  /** Map: test file (relative) 鈫?source modules it imports. */
+  /** Map: test file (relative) → source modules it imports. */
   testToSources: Map<string, string[]>
-  /** Map: source module 鈫?test files that import it. */
+  /** Map: source module → test files that import it. */
   sourceToTests: Map<string, string[]>
 }
 
-/** Build the test鈫抯ource dependency map by parsing import statements. */
+/** Build the test→source dependency map by parsing import statements. */
 function buildDependencyMap(root: string, testFiles: string[]): DependencyMap {
   const testToSources = new Map<string, string[]>()
   const sourceToTests = new Map<string, string[]>()
@@ -284,7 +282,7 @@ function resolveImportPath(dep: string, fromFile: string, root: string): string 
 // ---------------------------------------------------------------------------
 
 /** Analyse the impact: which tests depend on which changed files. */
-function analyzeImpact(root: string, changedFiles: string[], depMap: DependencyMap): ImpactResult {
+function analyzeImpact(changedFiles: string[], depMap: DependencyMap): ImpactResult {
   const affectedTests = new Set<string>()
   const reason: SelectionReason[] = []
 
@@ -295,7 +293,7 @@ function analyzeImpact(root: string, changedFiles: string[], depMap: DependencyM
       affectedTests.add(normalised)
       reason.push({ test: normalised, changedFile: normalised, dependency: 'self' })
     }
-    // The changed file is a source 鈥?find tests that import it.
+    // The changed file is a source — find tests that import it.
     const tests = depMap.sourceToTests.get(normalised) ?? []
     // Also try without extension (in case the import omitted it).
     const ext = extname(normalised)
@@ -315,8 +313,8 @@ function analyzeImpact(root: string, changedFiles: string[], depMap: DependencyM
 }
 
 /** Select tests that need to run. */
-function selectTests(root: string, changedFiles: string[], depMap: DependencyMap): ImpactResult {
-  const result = analyzeImpact(root, changedFiles, depMap)
+function selectTests(changedFiles: string[], depMap: DependencyMap): ImpactResult {
+  const result = analyzeImpact(changedFiles, depMap)
   // If no changed files, return all tests (run everything).
   if (changedFiles.length === 0) {
     const allTests = [...depMap.testToSources.keys()].sort()
