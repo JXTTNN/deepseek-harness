@@ -5,6 +5,9 @@
  * server over the configured transport; load multiple instances in `cordis.yml`
  * for multiple transports or ports.
  *
+ * Supports tool allow/deny lists (M7) and idempotent tool result caching (M9)
+ * via optional config fields shared across transports.
+ *
  * Namespace plugin (named exports, no default export). Lifecycle is
  * effect-scoped: disposal stops the server and releases the transport.
  * HMR hot-swaps by disposing the old instance and creating a new one.
@@ -31,8 +34,20 @@ export const inject = ['tools', 'systemPrompt']
 
 // ---- Config ----
 
+/** Common options shared across transport configs (M7 + M9). */
+interface CommonConfigOptions {
+  /** Tool allow-list: only these tools are exposed over MCP. */
+  allowTools?: string[]
+  /** Tool deny-list: these tools are not exposed over MCP. */
+  denyTools?: string[]
+  /** TTL in ms for idempotent tool result cache (default 60000). Set to 0 to disable caching. */
+  cacheTtl?: number
+  /** Maximum entries in the tool result cache (default 100). */
+  cacheMax?: number
+}
+
 /** Config for running an MCP server over stdio. */
-export interface StdioConfig {
+export interface StdioConfig extends CommonConfigOptions {
   /** Selects stdio transport (standard input/output). */
   transport: 'stdio'
   /** Server name advertised in the MCP initialize handshake. */
@@ -40,7 +55,7 @@ export interface StdioConfig {
 }
 
 /** Config for running an MCP server over Streamable HTTP. */
-export interface StreamableHttpConfig {
+export interface StreamableHttpConfig extends CommonConfigOptions {
   /** Selects Streamable HTTP transport. */
   transport: 'streamable-http'
   /** Server name advertised in the MCP initialize handshake. */
@@ -56,16 +71,26 @@ export type Config = StdioConfig | StreamableHttpConfig
 
 const DEFAULT_HOST = '127.0.0.1'
 
+/** Schema for the common tool filtering and caching options (M7 + M9). */
+const commonOptionsSchema = {
+  allowTools: z.array(z.string()).optional().description('Tool allow-list: only expose these tools over MCP'),
+  denyTools: z.array(z.string()).optional().description('Tool deny-list: do not expose these tools over MCP'),
+  cacheTtl: z.number().min(0).optional().description('TTL in ms for idempotent tool result cache (default 60000, 0 to disable)'),
+  cacheMax: z.number().step(1).min(1).optional().description('Maximum entries in the tool result cache (default 100)'),
+}
+
 export const Config = z.union([
   z.object({
     transport: z.const('stdio'),
     serverName: z.string().required(),
+    ...commonOptionsSchema,
   }),
   z.object({
     transport: z.const('streamable-http'),
     serverName: z.string().required(),
     port: z.number().step(1).min(1).max(65535).required(),
     host: z.string().default(DEFAULT_HOST),
+    ...commonOptionsSchema,
   }),
 ]) as unknown as z<Config>
 
