@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Cross-session team communication tools for the Team mode preset.
  *
  * Team-mode sessions share a `.team/` directory under the workspace. Each
@@ -44,7 +44,7 @@ const FILE_LOCK_STALE_MS = 10_000
 const MAX_INBOX_MESSAGES = 500
 
 /** Suppress a send only when an identical (sender, message) landed within this
- *  window — an accidental double-send — never a legitimate later repeat. */
+ *  window 鈥?an accidental double-send 鈥?never a legitimate later repeat. */
 const DEDUP_WINDOW_MS = 5000
 
 /** Append-only ledgers (tasks, sent, outbox, reviews, memory) are trimmed to
@@ -172,7 +172,7 @@ function lockedAppend(file: string, record: unknown): Promise<void> {
   return withFileLock(file, () => {
     writeFileSync(file, JSON.stringify(record) + '\n', { flag: 'a' })
     // Amortised bound: only when the ledger is already large, rewrite it to its
-    // tail. Best-effort — a trim failure must never fail the append itself.
+    // tail. Best-effort 鈥?a trim failure must never fail the append itself.
     try {
       if (statSync(file).size > MAX_APPEND_FILE_BYTES) {
         const records = readJsonlStrict<unknown>(file)
@@ -328,7 +328,7 @@ type TeamMemoryEntry = {
   version?: number
 }
 
-// ── team_memory search scoring (BM25-lite, fully offline) ────────────────
+// 鈹€鈹€ team_memory search scoring (BM25-lite, fully offline) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 // Classical IR ranking: term frequency saturating with k1, inverse document
 // frequency over the memory's own keys, and a doc-length normalization so the
 // model can rank recall hits on a shared memory of any size. Pure functions,
@@ -458,7 +458,7 @@ function normalizeGlob(glob: string): string {
 
 /** Naive writeSet overlap: two globs conflict when they are exactly equal or
  *  one is a directory prefix of the other (single most effective conflict
- *  avoidance rule — file-ownership partitioning; overlapping ownership is a bug). */
+ *  avoidance rule 鈥?file-ownership partitioning; overlapping ownership is a bug). */
 function writeSetsOverlap(a: string, b: string): boolean {
   const na = normalizeGlob(a)
   const nb = normalizeGlob(b)
@@ -466,14 +466,14 @@ function writeSetsOverlap(a: string, b: string): boolean {
 }
 
 /** Read a JSONL file, returning an array of parsed objects. A whole-file read
- *  error returns `[]` — suitable only for READ-ONLY consumers where an empty
+ *  error returns `[]` 鈥?suitable only for READ-ONLY consumers where an empty
  *  result is acceptable. Read-modify-write paths must use `readJsonlStrict`. */
 function readJsonl<T>(path: string): T[] {
   if (!existsSync(path)) return []
   try {
     return parseJsonl<T>(readFileSync(path, 'utf-8'))
   } catch {
-    // File read error (permission, transient AV lock, etc.) — return empty.
+    // File read error (permission, transient AV lock, etc.) 鈥?return empty.
     return []
   }
 }
@@ -489,8 +489,7 @@ function readJsonlStrict<T>(path: string): T[] {
   return parseJsonl<T>(readFileSync(path, 'utf-8'))
 }
 
-/** Parse only the last `n` records of a JSONL file without parsing the bulk —
- *  used for the cheap dedup window and reply lookups on a long inbox. */
+/** Parse only the last `n` records of a JSONL file without parsing the bulk 鈥? *  used for the cheap dedup window and reply lookups on a long inbox. */
 function readTailJsonl<T>(path: string, n: number): T[] {
   if (!existsSync(path) || n <= 0) return []
   try {
@@ -515,7 +514,7 @@ function parseJsonl<T>(raw: string): T[] {
     try {
       result.push(JSON.parse(line) as T)
     } catch {
-      // Skip malformed lines — don't lose the whole file over one bad line.
+      // Skip malformed lines 鈥?don't lose the whole file over one bad line.
     }
   }
   return result
@@ -536,7 +535,7 @@ function writeJsonl(path: string, records: unknown[]): void {
   try {
     const fd = openSync(tmp, 'r+')
     try { fsyncSync(fd) } finally { closeSync(fd) }
-  } catch { /* fsync unsupported/denied — rename still gives atomicity */ }
+  } catch { /* fsync unsupported/denied 鈥?rename still gives atomicity */ }
   // `renameSync` over an existing destination is atomic on POSIX, but Windows
   // can surface transient EPERM/EBUSY/EEXIST while a reader briefly holds the
   // file open. Retry a few times, then fall back to a direct write as a last
@@ -548,7 +547,7 @@ function writeJsonl(path: string, records: unknown[]): void {
       return
     } catch (err) {
       lastError = err
-      // If the temp file disappeared, another writer already renamed it — done.
+      // If the temp file disappeared, another writer already renamed it 鈥?done.
       if (!existsSync(tmp)) return
       // Busy-wait briefly; the Windows share lock is usually released in ms.
       const wait = 10 * (attempt + 1)
@@ -595,14 +594,14 @@ function readAllPresence(agent: { session: { header?: { cwd?: string } } }): Pre
       const raw = readFileSync(filePath, 'utf-8')
       const record = JSON.parse(raw) as PresenceRecord
       const age = now - new Date(record.ts).getTime()
-      // Stale, or carrying a corrupt/absent timestamp or unsafe id — remove it.
+      // Stale, or carrying a corrupt/absent timestamp or unsafe id 鈥?remove it.
       if (Number.isNaN(age) || age > PRESENCE_STALE_MS || typeof record.id !== 'string' || !isSafeTeamId(record.id)) {
         try { unlinkSync(filePath) } catch { /* best-effort */ }
         continue
       }
       records.push(record)
     } catch {
-      // Corrupted — remove it.
+      // Corrupted 鈥?remove it.
       try { unlinkSync(filePath) } catch { /* best-effort */ }
     }
   }
@@ -626,23 +625,23 @@ export function apply(ctx: Context): void {
     try { writePresence(ctx.agent) } catch { /* best-effort */ }
   }
 
-  // ── dynamic team state context (evaluated at every assembly) ──────────────
+  // 鈹€鈹€ dynamic team state context (evaluated at every assembly) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.systemPrompt.context({
     name: 'team:state',
     order: 0,
     text: () => {
-      return 'TEAM STATE: You are in a team. Call team_inbox EVERY turn to check for messages. Call team_list to discover peers. Use team_send to communicate (with priority for urgent messages). If you receive a message, you MUST reply to the sender with team_send(reply_to: msgId). To make the team greater than one agent, share a task board with team_task (priority/deadline/assignee + auto-notify), orchestrate complex multi-step work with team_workflow (DAG execution engine), persist decisions with team_memory (with MVCC cas for conflict-free updates, and recall topics with team_memory action=search), fan work out to every peer with team_broadcast + team_collect, verify results independently with team_review + team_review_collect (with structured evidence validation), synchronize phases with team_barrier, file structured reports with team_report (with structured evidence), audit and replay collaboration with team_audit, and get a one-shot health snapshot with team_status.'
+      return 'TEAM STATE: You are in a team. Call team_inbox EVERY turn to check for messages. Call team_list to discover peers. Use team_send to communicate (with priority for urgent messages). If you receive a message, you MUST reply to the sender with team_send(reply_to: msgId). To make the team greater than one agent, share a task board with team_task (priority/deadline/assignee + auto-notify), orchestrate complex multi-step work with team_workflow (DAG execution engine), persist decisions with team_memory (with MVCC cas for conflict-free updates, and recall topics with team_memory action=search), fan work out to every peer with team_broadcast + team_collect, verify results independently with team_review + team_review_collect (with structured evidence validation), synchronize phases with team_barrier, file structured reports with team_report (with structured evidence), audit and replay collaboration with team_audit, and get a one-shot health snapshot with team_status. For coordination resilience, elect a deterministic leader with team_elect (lease-based failover). Define typed roles with team_role (capabilities + writeSet + tool whitelists). Assign tasks adaptively with team_auto_assign (load_balance/affinity/history/round_robin). Define declarative agent specs with team_agent_define (model + tools + permissions + isolation, hot-reloadable).'
     },
   })
 
-  // ── mandatory protocol section (always visible) ───────────────────────────
+  // 鈹€鈹€ mandatory protocol section (always visible) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.systemPrompt.section({
     name: 'team:protocol',
     order: 1,
     text:
-      'TEAM COLLABORATION PROTOCOL (MANDATORY — VIOLATION MEANS MISSION FAILURE): '
+      'TEAM COLLABORATION PROTOCOL (MANDATORY 鈥?VIOLATION MEANS MISSION FAILURE): '
       + '(1) FIRST ACTION EVERY TURN: call team_inbox. Do not think, plan, or do anything else before calling team_inbox. '
       + '(2) If team_inbox returns messages, process EVERY message: read it, execute the task, verify the result, and reply IMMEDIATELY with team_send(target: sender_from, reply_to: msgId, message: your_result). '
       + '(3) Reply ONLY to the sender who messaged you. Do NOT broadcast to peers who did not message you. Only the coordinator delegates. '
@@ -650,8 +649,8 @@ export function apply(ctx: Context): void {
       + '(5) You are a TEAM MEMBER. You have peers who depend on you. If you ignore their messages, the team fails. '
       + '(6) MULTI-STEP WORKFLOW: When coordinating a task with multiple steps, after receiving a reply from one peer, IMMEDIATELY send the next step to the next peer. '
       + 'Do NOT wait for the user to prompt you. Continue the chain automatically. '
-      + 'Example: if you told 2号 to research, and 2号 replied, NOW send the result to 3号 without waiting. '
-      + '(7) When you receive a task, ACTUALLY do the work — write files, run commands, verify results. Reply with results, not intentions. '
+      + 'Example: if you told 2鍙?to research, and 2鍙?replied, NOW send the result to 3鍙?without waiting. '
+      + '(7) When you receive a task, ACTUALLY do the work 鈥?write files, run commands, verify results. Reply with results, not intentions. '
       + 'CRITICAL: team_send and team_inbox are the ONLY way to communicate with peers. '
       + 'When the user tells you to send a message or delegate a task to a peer, you MUST call team_send IMMEDIATELY. '
       + 'Do NOT reply with text like "I will send..." or "Let me tell...". Do NOT acknowledge. Do NOT describe. '
@@ -662,7 +661,7 @@ export function apply(ctx: Context): void {
       + '(10) A worker that finishes a team_task MUST call team_report with filesChanged and evidence, then mark the task done.',
   })
 
-  // ── team_send ──────────────────────────────────────────────────────────
+  // 鈹€鈹€ team_send 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.tools.register(defineTool({
     name: 'team_send',
@@ -707,7 +706,7 @@ export function apply(ctx: Context): void {
       },
       render: (_args, value) => {
         const v = value
-        if (v.duplicate) return [{ type: 'text' as const, text: `Duplicate suppressed — an identical message to ${v.to} was already sent recently.` }]
+        if (v.duplicate) return [{ type: 'text' as const, text: `Duplicate suppressed 鈥?an identical message to ${v.to} was already sent recently.` }]
         if (!v.ok) return [{ type: 'text' as const, text: `Failed to send to ${v.to}: ${v.error ?? 'unknown error'}` }]
         const extra = v.replyTo ? ` (reply to ${v.replyTo})` : ''
         const pri = v.priority && v.priority > 0 ? ` [priority ${v.priority}]` : ''
@@ -740,7 +739,7 @@ export function apply(ctx: Context): void {
       // Serialize the duplicate check + append so concurrent sends to the same
       // peer (or a peer's concurrent inbox read) cannot interleave and drop a message.
       return withFileLock(inboxFile, () => {
-        // Duplicate detection: skip only an accidental double-send — the same
+        // Duplicate detection: skip only an accidental double-send 鈥?the same
         // (sender, message) landing within DEDUP_WINDOW_MS. A later legitimate
         // repeat (e.g. a second "OK" for a different task) is delivered.
         const recent = readTailJsonl<TeamMessage>(inboxFile, 10)
@@ -844,7 +843,7 @@ export function apply(ctx: Context): void {
     },
   }))
 
-  // ── team_inbox ─────────────────────────────────────────────────────────
+  // 鈹€鈹€ team_inbox 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.tools.register(defineTool({
     name: 'team_inbox',
@@ -889,15 +888,15 @@ export function apply(ctx: Context): void {
           return [{ type: 'text' as const, text: v.new_count === 0 ? 'Inbox is empty. No new messages. Call team_send to report your progress to peers.' : `${v.new_count} new message(s), all read.` }]
         }
         const lines = v.messages.map((m: TeamMessage) => {
-          const reply = m.replyTo ? ` [reply to ${m.replyTo.slice(0, 8)}…]` : ''
-          return `[${m.ts}] ${m.msgId.slice(0, 8)}… from ${m.from}${reply}: ${m.message}`
+          const reply = m.replyTo ? ` [reply to ${m.replyTo.slice(0, 8)}鈥` : ''
+          return `[${m.ts}] ${m.msgId.slice(0, 8)}鈥?from ${m.from}${reply}: ${m.message}`
         })
         // Only demand replies for genuinely unread messages; an `all:true`
         // history read must not re-demand replies for already-read entries.
         if (v.new_count > 0) {
           lines.push('')
           lines.push('!!! REPLY REQUIRED: You MUST reply to EACH new message above using team_send(target: <from>, reply_to: <msgId>, message: <your response>).')
-          lines.push('If you need to research first, reply with a SHORT status like "Working on it, will report back" — then research. But you MUST call team_send NOW before doing anything else.')
+          lines.push('If you need to research first, reply with a SHORT status like "Working on it, will report back" 鈥?then research. But you MUST call team_send NOW before doing anything else.')
           lines.push('Do NOT just report to the user. Your teammates are WAITING. Call team_send NOW.')
         }
         return [{ type: 'text' as const, text: `${v.new_count} new message(s):\n${lines.join('\n')}` }]
@@ -951,7 +950,7 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // ── team_list ──────────────────────────────────────────────────────────
+  // 鈹€鈹€ team_list 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.tools.register(defineTool({
     name: 'team_list',
@@ -1030,17 +1029,17 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // ── think (deep reasoning 4-pass, persistent) ───────────────────────────
+  // 鈹€鈹€ think (deep reasoning 4-pass, persistent) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.tools.register(defineTool({
     name: 'think',
     description:
-      'MANDATORY deep reasoning tool. Your internal monologue is invisible to the team — only think() '
+      'MANDATORY deep reasoning tool. Your internal monologue is invisible to the team 鈥?only think() '
       + 'writes your reasoning to the shared team log so peers can read it. Call 4 times before acting: '
-      + 'PASS 1 (pass:1) — understand & decompose: restate the task, identify subtasks, dependencies, constraints, success criteria. '
-      + 'PASS 2 (pass:2) — explore & weigh: consider alternatives, edge cases, risks, trade-offs. '
-      + 'PASS 3 (pass:3) — decide & plan: choose the best approach and lay out the concrete execution plan in order. '
-      + 'PASS 4 (pass:4) — verify & self-check: re-check the plan for completeness, contradictions, and unresolved risks before acting. '
+      + 'PASS 1 (pass:1) 鈥?understand & decompose: restate the task, identify subtasks, dependencies, constraints, success criteria. '
+      + 'PASS 2 (pass:2) 鈥?explore & weigh: consider alternatives, edge cases, risks, trade-offs. '
+      + 'PASS 3 (pass:3) 鈥?decide & plan: choose the best approach and lay out the concrete execution plan in order. '
+      + 'PASS 4 (pass:4) 鈥?verify & self-check: re-check the plan for completeness, contradictions, and unresolved risks before acting. '
       + 'Each call appends to .team/think.log. Other sessions read your reasoning there.',
     parameters: {
       pass: { type: 'integer', required: true, description: 'Which pass: 1, 2, 3, or 4.' },
@@ -1112,12 +1111,12 @@ export function apply(ctx: Context): void {
     },
     presentCall: args => ({
       card: 'generic' as const,
-      title: `Deep think — pass ${args.pass}/4`,
+      title: `Deep think 鈥?pass ${args.pass}/4`,
       kind: 'other' as const,
     }),
   }))
 
-  // ── team_think_read ─────────────────────────────────────────────────────
+  // 鈹€鈹€ team_think_read 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.tools.register(defineTool({
     name: 'team_think_read',
@@ -1163,7 +1162,7 @@ export function apply(ctx: Context): void {
           return [{ type: 'text' as const, text: 'No thinking log entries found.' }]
         }
         const lines = v.entries.map(e =>
-          `[${e.ts}] ${e.session.slice(0, 8)}… pass${e.pass}: ${e.thought.slice(0, 200)}${e.thought.length > 200 ? '…' : ''}`,
+          `[${e.ts}] ${e.session.slice(0, 8)}鈥?pass${e.pass}: ${e.thought.slice(0, 200)}${e.thought.length > 200 ? '鈥? : ''}`,
         )
         return [{ type: 'text' as const, text: `${v.entries.length} of ${v.total} entries:\n${lines.join('\n')}` }]
       },
@@ -1206,7 +1205,7 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // ── team_broadcast + team_collect (fan-out / fan-in) ──────────────────────
+  // 鈹€鈹€ team_broadcast + team_collect (fan-out / fan-in) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   // Map-reduce parallelisation: one coordinator fans one task out to every
   // peer and later collects each answer. This is the wall-clock parallel
   // speedup a single conversation cannot provide.
@@ -1249,7 +1248,7 @@ export function apply(ctx: Context): void {
       render: (_args, value) => {
         const v = value as { broadcastId: string; sentTo: number; note?: string }
         if (v.note !== undefined) return [{ type: 'text' as const, text: v.note }]
-        return [{ type: 'text' as const, text: `Broadcast ${v.broadcastId.slice(0, 8)}… sent to ${v.sentTo} peer(s). Collect replies with team_collect(broadcastId: "${v.broadcastId}").` }]
+        return [{ type: 'text' as const, text: `Broadcast ${v.broadcastId.slice(0, 8)}鈥?sent to ${v.sentTo} peer(s). Collect replies with team_collect(broadcastId: "${v.broadcastId}").` }]
       },
     },
     async execute(args, exec) {
@@ -1257,7 +1256,7 @@ export function apply(ctx: Context): void {
       if (!agent) throw new Error('team_broadcast: no agent context')
       // Reject an oversized message up front (matching team_send's {ok:false}
       // style) instead of letting deliverMessage throw mid-loop after some
-      // peers already received it — a partial fan-out is worse than a refusal.
+      // peers already received it 鈥?a partial fan-out is worse than a refusal.
       const msgBytes = Buffer.byteLength(args.message, 'utf-8')
       if (msgBytes > MAX_MESSAGE_BYTES) {
         return { broadcastId: '', sentTo: 0, targets: [], note: `Message too large: ${msgBytes} bytes (max ${MAX_MESSAGE_BYTES})` }
@@ -1328,7 +1327,7 @@ export function apply(ctx: Context): void {
         const v = value as { total: number; replied: number; pending: string[]; replies: { from: string; message: string }[] }
         const lines = [
           `${v.replied} of ${v.total} replied.`,
-          ...v.replies.map(r => `  • ${r.from.slice(0, 8)}…: ${r.message.slice(0, 120)}`),
+          ...v.replies.map(r => `  鈥?${r.from.slice(0, 8)}鈥? ${r.message.slice(0, 120)}`),
           ...v.pending.length > 0 ? [`Pending: ${v.pending.join(', ')}`] : [],
         ]
         return [{ type: 'text' as const, text: lines.join('\n') }]
@@ -1363,7 +1362,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Collect broadcast replies', kind: 'read' as const }),
   }))
 
-  // ── team_task (shared durable task board) ─────────────────────────────────
+  // 鈹€鈹€ team_task (shared durable task board) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   // A visible division of labour with a state machine and dependencies. A
   // single conversation holds everything in one head; a team needs an external
   // board so every peer sees who owns what and what is blocked on what.
@@ -1373,7 +1372,7 @@ export function apply(ctx: Context): void {
     description:
       'Shared durable task board (.team/tasks.jsonl) for cross-session coordination. '
       + 'Actions: create (new todo), list (filter by status/assignee/priority), claim (atomically assign to self and start), '
-      + 'update (set status/result/description/assignee/deps/priority/deadline). States: todo → in_progress → done | blocked. '
+      + 'update (set status/result/description/assignee/deps/priority/deadline). States: todo 鈫?in_progress 鈫?done | blocked. '
       + 'Creating a task with an assignee auto-notifies that assignee; claiming or completing a task auto-notifies its creator. '
       + 'Use this so every peer sees who owns what and what each task is waiting on.',
     parameters: {
@@ -1387,7 +1386,7 @@ export function apply(ctx: Context): void {
       priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'], description: 'Priority (create/update). Defaults to normal.' },
       deadline: { type: 'string', description: 'ISO-8601 deadline (create/update).' },
       result: { type: 'string', description: 'Result or final answer (update).' },
-      writeSet: { type: 'array', items: { type: 'string' }, description: 'Workspace-relative globs the assignee EXCLUSIVELY owns (create). Everything outside is read-only for this task. Overlapping an open task writeSet returns a warning — overlapping ownership is a bug.' },
+      writeSet: { type: 'array', items: { type: 'string' }, description: 'Workspace-relative globs the assignee EXCLUSIVELY owns (create). Everything outside is read-only for this task. Overlapping an open task writeSet returns a warning 鈥?overlapping ownership is a bug.' },
       acceptance: { type: 'string', description: 'Machine/human-checkable done criteria, e.g. "build passes AND report filed" (create).' },
     },
     output: {
@@ -1401,10 +1400,10 @@ export function apply(ctx: Context): void {
           const p = t.priority && t.priority !== 'normal' ? ` !${t.priority}` : ''
           const dl = t.deadline ? ` due:${t.deadline}` : ''
           const d = t.deps && t.deps.length > 0 ? ` deps:[${t.deps.map(x => x.slice(0, 8)).join(',')}]` : ''
-          const r = t.result ? ` ⇒ ${t.result.slice(0, 80)}` : ''
+          const r = t.result ? ` 鈬?${t.result.slice(0, 80)}` : ''
           const ws = t.writeSet && t.writeSet.length > 0 ? ` owns:[${t.writeSet.join(',')}]` : ''
-          const acc = t.acceptance ? ` ✓${t.acceptance.slice(0, 80)}` : ''
-          return `  • [${t.status}]${p} ${t.id.slice(0, 8)}… ${t.title} (${a})${dl}${d}${r}${ws}${acc}`
+          const acc = t.acceptance ? ` 鉁?{t.acceptance.slice(0, 80)}` : ''
+          return `  鈥?[${t.status}]${p} ${t.id.slice(0, 8)}鈥?${t.title} (${a})${dl}${d}${r}${ws}${acc}`
         })
         return [{ type: 'text' as const, text: lines.join('\n') }]
       },
@@ -1431,7 +1430,7 @@ export function apply(ctx: Context): void {
             : undefined
           // Advisory overlap warning: an advisory pre-append read can miss a task
           // created in the same instant, but overlap is a coordination WARNING,
-          // not an enforced invariant — the board itself stays correct.
+          // not an enforced invariant 鈥?the board itself stays correct.
           const overlaps: string[] = []
           if (writeSet !== undefined) {
             const open = readJsonl<TeamTask>(file)
@@ -1440,7 +1439,7 @@ export function apply(ctx: Context): void {
               for (const g of writeSet) {
                 for (const og of other.writeSet as string[]) {
                   if (writeSetsOverlap(g, og)) {
-                    overlaps.push(`"${g}" overlaps "${og}" on open task ${other.id.slice(0, 8)}… "${other.title}"`)
+                    overlaps.push(`"${g}" overlaps "${og}" on open task ${other.id.slice(0, 8)}鈥?"${other.title}"`)
                   }
                 }
               }
@@ -1468,7 +1467,7 @@ export function apply(ctx: Context): void {
                 await notifyPeer(agent, task.assignee, `[team_task] New task assigned to you: ${task.title}${task.deadline ? ` (due ${task.deadline})` : ''}${priority ? ` (priority ${priority})` : ''}${task.writeSet ? ` You exclusively own: ${task.writeSet.join(', ')}.` : ''}${task.acceptance ? ` Done when: ${task.acceptance}` : ''}.\nClaim or update it with team_task(action:"claim"|"update", id:"${task.id}", ...), then file team_report(taskId:"${task.id}", summary, filesChanged, evidence) and mark the task done.`)
               } catch { /* notification is best-effort; the board is the source of truth */ }
             }
-            return { ok: true, tasks: [task], ...overlaps.length > 0 ? { warning: `writeSet overlap — overlapping ownership is a bug: ${overlaps.join('; ')}` } : {} }
+            return { ok: true, tasks: [task], ...overlaps.length > 0 ? { warning: `writeSet overlap 鈥?overlapping ownership is a bug: ${overlaps.join('; ')}` } : {} }
           })
         }
         case 'list': {
@@ -1505,7 +1504,7 @@ export function apply(ctx: Context): void {
             const task = tasks.find(t => t.id === id)
             if (task !== undefined && task.createdBy !== agent.session.id) {
               try {
-                await notifyPeer(agent, task.createdBy, `[team_task] ${agent.session.id.slice(0, 8)}… claimed task ${task.title}.`)
+                await notifyPeer(agent, task.createdBy, `[team_task] ${agent.session.id.slice(0, 8)}鈥?claimed task ${task.title}.`)
               } catch { /* best-effort */ }
             }
             return { ok: true, tasks: tasks.filter(t => t.id === id) }
@@ -1558,7 +1557,7 @@ export function apply(ctx: Context): void {
             const task = tasks.find(t => t.id === id)
             if (notify !== undefined) {
               try {
-                await notifyPeer(agent, notify.creator, `[team_task] ${agent.session.id.slice(0, 8)}… set task "${notify.title}" to ${notify.status}${notify.result ? `: ${notify.result.slice(0, 200)}` : ''}.`)
+                await notifyPeer(agent, notify.creator, `[team_task] ${agent.session.id.slice(0, 8)}鈥?set task "${notify.title}" to ${notify.status}${notify.result ? `: ${notify.result.slice(0, 200)}` : ''}.`)
               } catch { /* best-effort */ }
             }
             if (reassignTo !== undefined && task !== undefined) {
@@ -1576,7 +1575,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Task board: ${args.action}`, kind: 'other' as const }),
   }))
 
-  // ── team_report (fixed-schema fan-in report) ───────────────────────────────
+  // 鈹€鈹€ team_report (fixed-schema fan-in report) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   // Fan-in is parent-only with a fixed report schema: the coordinator merges
   // artifacts, not transcripts. Each finished task gets exactly one structured
   // record in .team/reports/<taskId>.json plus a ping to the task creator.
@@ -1632,7 +1631,7 @@ export function apply(ctx: Context): void {
       },
       render: (_args, value) => {
         const v = value
-        return [{ type: 'text' as const, text: `Report ${v.reportId.slice(0, 8)}… filed${v.notified ? ' and the task creator was notified' : ''}. Now mark the task done with team_task(action:"update", status:"done").` }]
+        return [{ type: 'text' as const, text: `Report ${v.reportId.slice(0, 8)}鈥?filed${v.notified ? ' and the task creator was notified' : ''}. Now mark the task done with team_task(action:"update", status:"done").` }]
       },
     },
     async execute(args, exec) {
@@ -1678,16 +1677,16 @@ export function apply(ctx: Context): void {
       let notified = false
       if (task.createdBy !== agent.session.id) {
         try {
-          await notifyPeer(agent, task.createdBy, `REPORT for task ${taskId.slice(0, 8)}… "${task.title}": ${summary}`)
+          await notifyPeer(agent, task.createdBy, `REPORT for task ${taskId.slice(0, 8)}鈥?"${task.title}": ${summary}`)
           notified = true
         } catch { /* notification is best-effort; the report file is the source of truth */ }
       }
       return { ok: true, reportId: report.reportId, notified }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Report task ${args.taskId.slice(0, 8)}…`, kind: 'other' as const }),
+    presentCall: args => ({ card: 'generic' as const, title: `Report task ${args.taskId.slice(0, 8)}鈥, kind: 'other' as const }),
   }))
 
-  // ── team_wrap (explicit termination — coordinator shutdown protocol) ────────
+  // 鈹€鈹€ team_wrap (explicit termination 鈥?coordinator shutdown protocol) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   // Termination is explicit, not assumed: the coordinator archives counts +
   // summary, drops a WRAP marker (which flips off the team_status wrapHint),
   // drains every inbox, and tells each live peer to go idle.
@@ -1766,7 +1765,7 @@ export function apply(ctx: Context): void {
         }, null, 2) + '\n')
       })
 
-      // 2. WRAP marker — its mere presence flips the team_status wrapHint off.
+      // 2. WRAP marker 鈥?its mere presence flips the team_status wrapHint off.
       const wrapFile = join(teamDir, 'WRAP')
       await withFileLock(wrapFile, () => {
         writeFileSync(wrapFile, `TEAM WRAP ${ts}\n\n${summary}\n`)
@@ -1784,7 +1783,7 @@ export function apply(ctx: Context): void {
       let wrappedPeers = 0
       for (const id of peerIds(agent)) {
         try {
-          await notifyPeer(agent, id, `TEAM_WRAP: ${summary} — archive tasks and go idle`)
+          await notifyPeer(agent, id, `TEAM_WRAP: ${summary} 鈥?archive tasks and go idle`)
           wrappedPeers++
         } catch { /* best-effort */ }
       }
@@ -1794,7 +1793,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Wrap up the team', kind: 'other' as const }),
   }))
 
-  // ── team_memory (shared durable memory) ────────────────────────────────────
+  // 鈹€鈹€ team_memory (shared durable memory) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   // The cross-session stand-in for a single conversation's shared transcript:
   // decisions and facts persist so peers never re-derive or re-transmit context.
 
@@ -1803,7 +1802,7 @@ export function apply(ctx: Context): void {
     description:
       'Shared durable key-value memory (.team/memory.jsonl) visible to every team session. '
       + 'Actions: set (store a fact/decision under a key), get (read the latest value), list (all entries), delete. '
-      + 'search (query: free text; ranked recall over ALL entries — use this when you know the topic but not the exact key). '
+      + 'search (query: free text; ranked recall over ALL entries 鈥?use this when you know the topic but not the exact key). '
       + 'Use it to persist decisions and facts so peers do not re-derive or re-transmit context.',
     parameters: {
       action: { type: 'string', required: true, enum: ['set', 'get', 'list', 'delete', 'search'], description: 'Which memory operation to run.' },
@@ -1824,11 +1823,11 @@ export function apply(ctx: Context): void {
             type: 'text' as const,
             text: hits.length === 0
               ? `No memory entries matched "${v.query}".`
-              : hits.map(e => `  • ${e.key} = ${e.value.slice(0, 160)}`).join('\n'),
+              : hits.map(e => `  鈥?${e.key} = ${e.value.slice(0, 160)}`).join('\n'),
           }]
         }
         if (v.entries !== undefined) {
-          return [{ type: 'text' as const, text: v.entries.length === 0 ? 'No memory entries.' : v.entries.map(e => `  • ${e.key} = ${e.value.slice(0, 160)}`).join('\n') }]
+          return [{ type: 'text' as const, text: v.entries.length === 0 ? 'No memory entries.' : v.entries.map(e => `  鈥?${e.key} = ${e.value.slice(0, 160)}`).join('\n') }]
         }
         return [{ type: 'text' as const, text: v.ok ? `${v.key ?? ''} ${v.value !== undefined ? `= ${v.value.slice(0, 160)}` : 'done'}` : `${v.key ?? ''} not found` }]
       },
@@ -1857,7 +1856,7 @@ export function apply(ctx: Context): void {
               const currentVersion = existing?.version ?? 0
               const expectedVersion = typeof args.version === 'number' ? args.version : 0
               if (currentVersion !== expectedVersion) {
-                // Version conflict — throw a typed error so the caller can catch it.
+                // Version conflict 鈥?throw a typed error so the caller can catch it.
                 // We use a special property to signal the conflict without throwing
                 // (since lockedUpdate would propagate the throw). Instead, we append
                 // a conflict marker and let the caller detect it.
@@ -1930,7 +1929,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Team memory: ${args.action}`, kind: 'other' as const }),
   }))
 
-  // ── team_review (independent multi-party verification) ─────────────────────
+  // 鈹€鈹€ team_review (independent multi-party verification) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   // Evaluator/critic pattern: a second session independently checks a result
   // before it is reported. This is the "many eyes" check a single conversation
   // cannot give itself.
@@ -1940,7 +1939,7 @@ export function apply(ctx: Context): void {
     description:
       'Request an independent review/verification from another team session (evaluator pattern). '
       + 'Sends the subject and content to a peer and records the request so the verdict can be collected. '
-      + 'Use this so a second pair of eyes validates results before you report them — a check a single conversation cannot perform.',
+      + 'Use this so a second pair of eyes validates results before you report them 鈥?a check a single conversation cannot perform.',
     parameters: {
       target: { type: 'string', required: true, description: 'Reviewer session id (a peer).' },
       subject: { type: 'string', required: true, description: 'Short label for what is being reviewed.' },
@@ -1958,7 +1957,7 @@ export function apply(ctx: Context): void {
       },
       render: (_args, value) => {
         const v = value as { reviewId: string; target: string }
-        return [{ type: 'text' as const, text: `Review ${v.reviewId.slice(0, 8)}… requested from ${v.target.slice(0, 8)}…` }]
+        return [{ type: 'text' as const, text: `Review ${v.reviewId.slice(0, 8)}鈥?requested from ${v.target.slice(0, 8)}鈥 }]
       },
     },
     async execute(args, exec) {
@@ -1976,7 +1975,7 @@ export function apply(ctx: Context): void {
       await deliverMessage(
         agent,
         target,
-        `REVIEW REQUEST (reviewId: ${reviewId}) from ${agent.session.id} — subject: ${subject}\n\nCONTENT TO VERIFY:\n${content}\n\nVerify independently: re-read the actual files/claims, do not assume correctness. Reply with team_send(target: "${agent.session.id}", reply_to: "${msgId}", message: "VERDICT: <pass|fail|needs-changes>\nFINDINGS:\n- ...").`,
+        `REVIEW REQUEST (reviewId: ${reviewId}) from ${agent.session.id} 鈥?subject: ${subject}\n\nCONTENT TO VERIFY:\n${content}\n\nVerify independently: re-read the actual files/claims, do not assume correctness. Reply with team_send(target: "${agent.session.id}", reply_to: "${msgId}", message: "VERDICT: <pass|fail|needs-changes>\nFINDINGS:\n- ...").`,
         undefined,
         msgId,
       )
@@ -1996,7 +1995,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Request review: ${args.subject}`, kind: 'other' as const }),
   }))
 
-  // ── team_review_collect (collect verdicts — closes the review loop) ─────────
+  // 鈹€鈹€ team_review_collect (collect verdicts 鈥?closes the review loop) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.tools.register(defineTool({
     name: 'team_review_collect',
@@ -2017,10 +2016,10 @@ export function apply(ctx: Context): void {
         }
         const lines = [`${v.verdicts.length} of ${v.total} review(s) returned a verdict.`]
         for (const x of v.verdicts) {
-          lines.push(`  • ${x.subject}: ${x.verdict} (from ${x.target.slice(0, 8)}…)`)
+          lines.push(`  鈥?${x.subject}: ${x.verdict} (from ${x.target.slice(0, 8)}鈥?`)
         }
         for (const p of v.pending) {
-          lines.push(`  • PENDING: ${p.subject} (awaiting ${p.target.slice(0, 8)}…)`)
+          lines.push(`  鈥?PENDING: ${p.subject} (awaiting ${p.target.slice(0, 8)}鈥?`)
         }
         return [{ type: 'text' as const, text: lines.join('\n') }]
       },
@@ -2063,7 +2062,7 @@ export function apply(ctx: Context): void {
                   if (typeof ev === 'object' && ev !== null && 'status' in ev) {
                     const status = (ev as StructuredEvidence).status
                     if (status === 'fail') {
-                      evidenceIssues.push(`Report ${report.reportId.slice(0, 8)}… has failing evidence: ${(ev as StructuredEvidence).type} — ${(ev as StructuredEvidence).command ?? 'no command'}`)
+                      evidenceIssues.push(`Report ${report.reportId.slice(0, 8)}鈥?has failing evidence: ${(ev as StructuredEvidence).type} 鈥?${(ev as StructuredEvidence).command ?? 'no command'}`)
                     }
                   }
                 }
@@ -2077,7 +2076,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Collect review verdicts', kind: 'read' as const }),
   }))
 
-  // ── team_status (one-shot team health snapshot) ─────────────────────────────
+  // 鈹€鈹€ team_status (one-shot team health snapshot) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.tools.register(defineTool({
     name: 'team_status',
@@ -2099,16 +2098,16 @@ export function apply(ctx: Context): void {
           wrapHint?: string
         }
         const lines = [
-          `Team status (self ${v.self.slice(0, 8)}…):`,
+          `Team status (self ${v.self.slice(0, 8)}鈥?:`,
           v.peers.length === 0
             ? '  peers: none live'
-            : `  peers: ${v.peers.map(p => `${p.id.slice(0, 8)}…(${Math.round(p.seenMsAgo / 1000)}s ago)`).join(', ')}`,
+            : `  peers: ${v.peers.map(p => `${p.id.slice(0, 8)}鈥?${Math.round(p.seenMsAgo / 1000)}s ago)`).join(', ')}`,
           `  unread inbox: ${v.unread}`,
           `  pending broadcasts: ${v.pendingBroadcasts}`,
           `  pending reviews: ${v.pendingReviews}`,
           `  tasks: ${Object.entries(v.tasks).map(([k, n]) => `${k}=${n}`).join(' ') || 'none'}`,
         ]
-        if (v.wrapHint !== undefined) lines.push(`  ⚑ ${v.wrapHint}`)
+        if (v.wrapHint !== undefined) lines.push(`  鈿?${v.wrapHint}`)
         return [{ type: 'text' as const, text: lines.join('\n') }]
       },
     },
@@ -2150,12 +2149,12 @@ export function apply(ctx: Context): void {
 
       // Explicit termination hint: with every task terminal and no WRAP marker
       // yet, the coordinator should close the mission instead of letting peers
-      // idle indefinitely. An empty board never hints — nothing was ever run.
+      // idle indefinitely. An empty board never hints 鈥?nothing was ever run.
       let wrapHint: string | undefined
       if (allTasks.length > 0
         && allTasks.every(t => t.status === 'done' || t.status === 'blocked')
         && !existsSync(teamPath(agent, 'WRAP'))) {
-        wrapHint = 'All tasks terminal — call team_wrap to archive and release peers.'
+        wrapHint = 'All tasks terminal 鈥?call team_wrap to archive and release peers.'
       }
 
       return Promise.resolve({
@@ -2166,7 +2165,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Team status snapshot', kind: 'read' as const }),
   }))
 
-  // ── team_barrier (named fan-in synchronization) ─────────────────────────────
+  // 鈹€鈹€ team_barrier (named fan-in synchronization) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.tools.register(defineTool({
     name: 'team_barrier',
@@ -2183,7 +2182,7 @@ export function apply(ctx: Context): void {
       schema: { type: 'object', additionalProperties: true },
       render: (_args, value) => {
         const v = value as unknown as { name: string; arrived: number; expect: number; reached: boolean; arrivedIds: string[] }
-        return [{ type: 'text' as const, text: `Barrier "${v.name}": ${v.arrived}/${v.expect} arrived${v.reached ? ' — REACHED' : ''}${v.arrivedIds.length ? ` (${v.arrivedIds.map(i => i.slice(0, 8)).join(', ')})` : ''}` }]
+        return [{ type: 'text' as const, text: `Barrier "${v.name}": ${v.arrived}/${v.expect} arrived${v.reached ? ' 鈥?REACHED' : ''}${v.arrivedIds.length ? ` (${v.arrivedIds.map(i => i.slice(0, 8)).join(', ')})` : ''}` }]
       },
     },
     execute(args, exec) {
@@ -2209,7 +2208,7 @@ export function apply(ctx: Context): void {
       return withFileLock(file, () => {
         let barrier: TeamBarrier = { name, expect, arrived: [], ts: new Date().toISOString() }
         if (existsSync(file)) {
-          try { barrier = JSON.parse(readFileSync(file, 'utf-8')) as TeamBarrier } catch { /* corrupted — reset */ }
+          try { barrier = JSON.parse(readFileSync(file, 'utf-8')) as TeamBarrier } catch { /* corrupted 鈥?reset */ }
           // `arrive` only bumps the arrival count; it must not overwrite the
           // threshold the coordinator established. A peer arriving with the
           // default expect=1 would otherwise collapse an N-peer barrier to 1.
@@ -2228,7 +2227,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Barrier ${args.action}: ${args.name}`, kind: 'other' as const }),
   }))
 
-  // ── team_workflow (F3: DAG execution engine) ────────────────────────────────
+  // 鈹€鈹€ team_workflow (F3: DAG execution engine) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   // Declarative DAG workflow: a coordinator defines nodes (tasks) with
   // dependencies, and the engine auto-schedules ready nodes (deps satisfied)
   // as team_tasks. When a node completes, the next dependent nodes become ready.
@@ -2371,7 +2370,7 @@ export function apply(ctx: Context): void {
         if (v.nodeStatus !== undefined) {
           const lines = [`Workflow "${v.name ?? ''}" status:`]
           for (const [nodeId, status] of Object.entries(v.nodeStatus)) {
-            const icon = status === 'completed' ? '✓' : status === 'running' ? '▶' : status === 'failed' ? '✗' : status === 'cancelled' ? '⊘' : '○'
+            const icon = status === 'completed' ? '鉁? : status === 'running' ? '鈻? : status === 'failed' ? '鉁? : status === 'cancelled' ? '鈯? : '鈼?
             lines.push(`  ${icon} ${nodeId}: ${status}`)
           }
           return [{ type: 'text' as const, text: lines.join('\n') }]
@@ -2480,7 +2479,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Workflow ${args.action}: ${args.name}`, kind: 'other' as const }),
   }))
 
-  // ── team_audit (F9: collaboration replay & audit) ───────────────────────────
+  // 鈹€鈹€ team_audit (F9: collaboration replay & audit) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   // Merges all .team/*.jsonl event logs into a unified timeline for replay,
   // audit, and statistics. Supports filtering by time range, session, and
   // action type.
@@ -2581,7 +2580,7 @@ export function apply(ctx: Context): void {
           const lines = [
             `Audit stats (${s.total} total events):`,
             `  By action: ${Object.entries(s.byAction).map(([k, n]) => `${k}=${n}`).join(', ') || 'none'}`,
-            `  By session: ${Object.entries(s.bySession).map(([k, n]) => `${k.slice(0, 8)}…=${n}`).join(', ') || 'none'}`,
+            `  By session: ${Object.entries(s.bySession).map(([k, n]) => `${k.slice(0, 8)}鈥?${n}`).join(', ') || 'none'}`,
             `  Errors: ${s.errorCount}`,
           ]
           return [{ type: 'text' as const, text: lines.join('\n') }]
@@ -2589,10 +2588,10 @@ export function apply(ctx: Context): void {
         if (v.events !== undefined) {
           if (v.events.length === 0) return [{ type: 'text' as const, text: 'No events match the filter.' }]
           const lines = v.events.slice(0, 50).map(e => {
-            const sess = e.session ? ` ${e.session.slice(0, 8)}…` : ''
+            const sess = e.session ? ` ${e.session.slice(0, 8)}鈥 : ''
             return `[${e.ts}] ${e.action}${sess} (${e.source})`
           })
-          const trunc = v.events.length > 50 ? `\n… and ${v.events.length - 50} more.` : ''
+          const trunc = v.events.length > 50 ? `\n鈥?and ${v.events.length - 50} more.` : ''
           return [{ type: 'text' as const, text: `${v.events.length} event(s):\n${lines.join('\n')}${trunc}` }]
         }
         return [{ type: 'text' as const, text: 'Audit complete.' }]
@@ -2673,7 +2672,741 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Audit ${args.action}`, kind: 'read' as const }),
   }))
 
-  // ── session_delete tool ───────────────────────────────────────────────────
+
+  // -- team_elect (F1: leader election with lease-based failover) --
+  // Deterministic leader election: smallest session id among live peers wins.
+  // Each role has an election file .team/election/<role>.json with a lease.
+  // A crashed leader's lease expires (default 5 min) and a peer takes over.
+
+  /** F1: Election lease duration in ms (default 5 minutes). */
+  const ELECTION_LEASE_MS = 5 * 60_000
+
+  /** F1: One election record for a role. */
+  interface ElectionRecord {
+    role: string
+    leader: string
+    leaseExpires: string
+    electedAt: string
+    voters: string[]
+  }
+
+  /** F1: Read an election record for a role. */
+  function readElection(agent: { session: { header?: { cwd?: string } } }, role: string): ElectionRecord | undefined {
+    const file = join(teamCwd(agent), TEAM_DIR, 'election', `${role}.json`)
+    if (!existsSync(file)) return undefined
+    try {
+      return JSON.parse(readFileSync(file, 'utf-8')) as ElectionRecord
+    } catch {
+      return undefined
+    }
+  }
+
+  /** F1: Write an election record atomically. */
+  function writeElection(agent: { session: { header?: { cwd?: string } } }, record: ElectionRecord): void {
+    const dir = join(teamCwd(agent), TEAM_DIR, 'election')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, `${record.role}.json`)
+    const tmp = `${file}.${randomUUID()}.tmp`
+    writeFileSync(tmp, JSON.stringify(record, null, 2))
+    renameSync(tmp, file)
+  }
+
+  /** F1: Perform deterministic election: smallest session id among live peers wins. */
+  function electLeader(agent: { session: { id: string; header?: { cwd?: string } } }, role: string): ElectionRecord {
+    const peers = readAllPresence(agent)
+    const sessionIds = peers.map(p => p.id).filter(isSafeTeamId).sort()
+    const leader = sessionIds.length > 0 ? sessionIds[0]! : agent.session.id
+    const now = new Date()
+    const record: ElectionRecord = {
+      role,
+      leader,
+      leaseExpires: new Date(now.getTime() + ELECTION_LEASE_MS).toISOString(),
+      electedAt: now.toISOString(),
+      voters: sessionIds,
+    }
+    writeElection(agent, record)
+    return record
+  }
+
+  ctx.tools.register(defineTool({
+    name: 'team_elect',
+    description:
+      'F1: Deterministic leader election with lease-based failover. '
+      + 'Actions: vote (participate in election for a role; smallest session id wins; lease auto-renews if you are leader; expired lease triggers re-election), '
+      + 'status (return current leader for one or all roles), yield (release leadership, triggering re-election). '
+      + 'Eliminates single-point-of-failure when the coordinator crashes: its lease expires and a peer takes over.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['vote', 'status', 'yield'], description: 'Which election operation to run.' },
+      role: { type: 'string', description: 'Role name (e.g. "coordinator"). Required for vote/yield; omit for status to list all.' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => {
+        const v = value as unknown as { ok: boolean; role?: string; leader?: string; isLeader?: boolean; leaseExpires?: string; elections?: ElectionRecord[]; error?: string }
+        if (!v.ok) return [{ type: 'text' as const, text: `team_elect failed: ${v.error ?? 'unknown error'}` }]
+        if (v.elections !== undefined) {
+          if (v.elections.length === 0) return [{ type: 'text' as const, text: 'No elections found.' }]
+          const lines = v.elections.map(e => `  ${e.role}: leader=${e.leader.slice(0, 8)}... lease=${e.leaseExpires}`)
+          return [{ type: 'text' as const, text: `Elections:\n${lines.join('\n')}` }]
+        }
+        const me = v.isLeader ? ' (YOU)' : ''
+        return [{ type: 'text' as const, text: `Role "${v.role ?? ''}" leader: ${v.leader?.slice(0, 8) ?? 'none'}...${me} (lease expires ${v.leaseExpires ?? 'n/a'})` }]
+      },
+    },
+    execute(args, exec) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_elect: no agent context')
+      try { writePresence(agent) } catch { /* best-effort */ }
+
+      switch (args.action) {
+        case 'vote': {
+          const role = args.role
+          if (typeof role !== 'string' || role.length === 0) throw new Error('team_elect vote: role is required')
+          if (!isSafeTeamId(role)) throw new Error('team_elect vote: role must be a non-empty string without path separators')
+          const electionFile = join(teamCwd(agent), TEAM_DIR, 'election', `${role}.json`)
+          return withFileLock(electionFile, () => {
+            const existing = readElection(agent, role)
+            const nowMs = Date.now()
+            // If there is a live leader with a valid lease, renew if it's us.
+            if (existing !== undefined && existing.leader === agent.session.id && nowMs < new Date(existing.leaseExpires).getTime()) {
+              const renewed: ElectionRecord = {
+                ...existing,
+                leaseExpires: new Date(nowMs + ELECTION_LEASE_MS).toISOString(),
+              }
+              writeElection(agent, renewed)
+              return { ok: true, role, leader: renewed.leader, isLeader: true, leaseExpires: renewed.leaseExpires }
+            }
+            // If there is a valid lease held by someone else, keep them.
+            if (existing !== undefined && nowMs < new Date(existing.leaseExpires).getTime()) {
+              return { ok: true, role, leader: existing.leader, isLeader: existing.leader === agent.session.id, leaseExpires: existing.leaseExpires }
+            }
+            // Lease expired or no election yet: run election.
+            const record = electLeader(agent, role)
+            return { ok: true, role, leader: record.leader, isLeader: record.leader === agent.session.id, leaseExpires: record.leaseExpires }
+          })
+        }
+        case 'status': {
+          if (args.role !== undefined) {
+            const role = args.role
+            if (!isSafeTeamId(role)) throw new Error('team_elect status: invalid role')
+            const existing = readElection(agent, role)
+            if (existing === undefined) return Promise.resolve({ ok: true, role, leader: '', isLeader: false, leaseExpires: '' })
+            const nowMs = Date.now()
+            const leaseValid = nowMs < new Date(existing.leaseExpires).getTime()
+            const result: { ok: boolean; role: string; leader: string; isLeader: boolean; leaseExpires: string; leaseExpired?: boolean } = {
+              ok: true, role, leader: existing.leader, isLeader: existing.leader === agent.session.id, leaseExpires: existing.leaseExpires,
+            }
+            if (!leaseValid) result.leaseExpired = true
+            return Promise.resolve(result)
+          }
+          // List all elections.
+          const dir = join(teamCwd(agent), TEAM_DIR, 'election')
+          const elections: ElectionRecord[] = []
+          if (existsSync(dir)) {
+            for (const file of readdirSync(dir)) {
+              if (!file.endsWith('.json')) continue
+              try {
+                const record = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as ElectionRecord
+                elections.push(record)
+              } catch { /* skip corrupted */ }
+            }
+          }
+          return Promise.resolve({ ok: true, elections })
+        }
+        case 'yield': {
+          const role = args.role
+          if (typeof role !== 'string' || role.length === 0) throw new Error('team_elect yield: role is required')
+          if (!isSafeTeamId(role)) throw new Error('team_elect yield: invalid role')
+          const electionFile = join(teamCwd(agent), TEAM_DIR, 'election', `${role}.json`)
+          return withFileLock(electionFile, () => {
+            const existing = readElection(agent, role)
+            if (existing === undefined) return { ok: true, role, leader: '', isLeader: false, leaseExpires: '', error: 'no election found for this role' }
+            if (existing.leader !== agent.session.id) return { ok: true, role, leader: existing.leader, isLeader: false, leaseExpires: existing.leaseExpires, error: 'you are not the current leader' }
+            // Yield: run a new election excluding ourselves.
+            const peers = readAllPresence(agent).filter(p => p.id !== agent.session.id)
+            const sessionIds = peers.map(p => p.id).filter(isSafeTeamId).sort()
+            const newLeader = sessionIds.length > 0 ? sessionIds[0]! : agent.session.id
+            const nowMs = Date.now()
+            const record: ElectionRecord = {
+              role,
+              leader: newLeader,
+              leaseExpires: new Date(nowMs + ELECTION_LEASE_MS).toISOString(),
+              electedAt: new Date(nowMs).toISOString(),
+              voters: sessionIds,
+            }
+            writeElection(agent, record)
+            return { ok: true, role, leader: record.leader, isLeader: record.leader === agent.session.id, leaseExpires: record.leaseExpires }
+          })
+        }
+        default:
+          throw new Error(`team_elect: unknown action "${String(args.action)}"`)
+      }
+    },
+    presentCall: args => ({ card: 'generic' as const, title: `Election ${args.action}`, kind: 'other' as const }),
+  }))
+
+  // -- team_role (F6: typed role definitions) --
+  // Roles define capabilities, write sets, tool whitelists/blacklists, and
+  // concurrency limits. Stored in .team/roles/<name>.json. Assignments map
+  // sessions to roles in .team/roles/assignments.json.
+
+  /** F6: One role definition. */
+  interface RoleDefinition {
+    name: string
+    capabilities?: string[]
+    writeSet?: string[]
+    tools?: string[]
+    disallowedTools?: string[]
+    maxConcurrentTasks?: number
+    definedAt: string
+  }
+
+  /** F6: Session-to-role assignment map. */
+  interface RoleAssignments {
+    [session: string]: string
+  }
+
+  /** F6: Read a role definition. */
+  function readRole(agent: { session: { header?: { cwd?: string } } }, name: string): RoleDefinition | undefined {
+    const file = join(teamCwd(agent), TEAM_DIR, 'roles', `${name}.json`)
+    if (!existsSync(file)) return undefined
+    try {
+      return JSON.parse(readFileSync(file, 'utf-8')) as RoleDefinition
+    } catch {
+      return undefined
+    }
+  }
+
+  /** F6: Write a role definition atomically. */
+  function writeRole(agent: { session: { header?: { cwd?: string } } }, role: RoleDefinition): void {
+    const dir = join(teamCwd(agent), TEAM_DIR, 'roles')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, `${role.name}.json`)
+    const tmp = `${file}.${randomUUID()}.tmp`
+    writeFileSync(tmp, JSON.stringify(role, null, 2))
+    renameSync(tmp, file)
+  }
+
+  /** F6: Read all role assignments. */
+  function readRoleAssignments(agent: { session: { header?: { cwd?: string } } }): RoleAssignments {
+    const file = join(teamCwd(agent), TEAM_DIR, 'roles', 'assignments.json')
+    if (!existsSync(file)) return {}
+    try {
+      return JSON.parse(readFileSync(file, 'utf-8')) as RoleAssignments
+    } catch {
+      return {}
+    }
+  }
+
+  /** F6: Write role assignments atomically. */
+  function writeRoleAssignments(agent: { session: { header?: { cwd?: string } } }, assignments: RoleAssignments): void {
+    const dir = join(teamCwd(agent), TEAM_DIR, 'roles')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, 'assignments.json')
+    const tmp = `${file}.${randomUUID()}.tmp`
+    writeFileSync(tmp, JSON.stringify(assignments, null, 2))
+    renameSync(tmp, file)
+  }
+
+  ctx.tools.register(defineTool({
+    name: 'team_role',
+    description:
+      'F6: Typed role definitions with capabilities, write sets, tool whitelists/blacklists, and concurrency limits. '
+      + 'Actions: define (create/update a role), list (all roles), assign (bind a role to a session), revoke (remove a session\'s role). '
+      + 'Role definitions live in .team/roles/<name>.json; assignments in .team/roles/assignments.json. '
+      + 'team_task claim can check the session\'s role writeSet before allowing the claim.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['define', 'list', 'assign', 'revoke'], description: 'Which role operation to run.' },
+      name: { type: 'string', description: 'Role name (define/assign/revoke).' },
+      capabilities: { type: 'array', items: { type: 'string' }, description: 'Capability list, e.g. ["read","write","execute"] (define).' },
+      writeSet: { type: 'array', items: { type: 'string' }, description: 'File/dir globs this role may write (define).' },
+      tools: { type: 'array', items: { type: 'string' }, description: 'Allowed tool whitelist (define).' },
+      disallowedTools: { type: 'array', items: { type: 'string' }, description: 'Disallowed tool blacklist (define).' },
+      maxConcurrentTasks: { type: 'integer', description: 'Max concurrent tasks for this role (define).' },
+      session: { type: 'string', description: 'Session id to assign/revoke a role for.' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => {
+        const v = value as unknown as { ok: boolean; role?: RoleDefinition; roles?: RoleDefinition[]; assignment?: { session: string; role: string }; assignments?: RoleAssignments; error?: string }
+        if (!v.ok) return [{ type: 'text' as const, text: `team_role failed: ${v.error ?? 'unknown error'}` }]
+        if (v.roles !== undefined) {
+          if (v.roles.length === 0) return [{ type: 'text' as const, text: 'No roles defined.' }]
+          const lines = v.roles.map(r => `  ${r.name}: caps=[${r.capabilities?.join(',') ?? ''}] tools=[${r.tools?.join(',') ?? '*'}] maxConcurrent=${r.maxConcurrentTasks ?? 'unlimited'}`)
+          return [{ type: 'text' as const, text: `Roles:\n${lines.join('\n')}` }]
+        }
+        if (v.assignments !== undefined) {
+          const entries = Object.entries(v.assignments)
+          if (entries.length === 0) return [{ type: 'text' as const, text: 'No role assignments.' }]
+          const lines = entries.map(([s, r]) => `  ${s.slice(0, 8)}... -> ${r}`)
+          return [{ type: 'text' as const, text: `Assignments:\n${lines.join('\n')}` }]
+        }
+        if (v.assignment !== undefined) return [{ type: 'text' as const, text: `Assigned role "${v.assignment.role}" to ${v.assignment.session.slice(0, 8)}...` }]
+        if (v.role !== undefined) return [{ type: 'text' as const, text: `Role "${v.role.name}" defined.` }]
+        return [{ type: 'text' as const, text: 'Role operation completed.' }]
+      },
+    },
+    execute(args, exec) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_role: no agent context')
+      try { writePresence(agent) } catch { /* best-effort */ }
+
+      switch (args.action) {
+        case 'define': {
+          const name = args.name
+          if (typeof name !== 'string' || name.length === 0) throw new Error('team_role define: name is required')
+          if (!isSafeTeamId(name)) throw new Error('team_role define: name must be a non-empty string without path separators')
+          const roleFile = join(teamCwd(agent), TEAM_DIR, 'roles', `${name}.json`)
+          return withFileLock(roleFile, () => {
+            const existing = readRole(agent, name)
+            const role: RoleDefinition = {
+              name,
+              definedAt: existing?.definedAt ?? new Date().toISOString(),
+            }
+            // Merge: new args take priority, then existing, then omit.
+            const capabilities = Array.isArray(args.capabilities) ? args.capabilities as string[] : existing?.capabilities
+            if (capabilities !== undefined) role.capabilities = capabilities
+            const writeSet = Array.isArray(args.writeSet) ? args.writeSet as string[] : existing?.writeSet
+            if (writeSet !== undefined) role.writeSet = writeSet
+            const tools = Array.isArray(args.tools) ? args.tools as string[] : existing?.tools
+            if (tools !== undefined) role.tools = tools
+            const disallowedTools = Array.isArray(args.disallowedTools) ? args.disallowedTools as string[] : existing?.disallowedTools
+            if (disallowedTools !== undefined) role.disallowedTools = disallowedTools
+            const maxConcurrentTasks = typeof args.maxConcurrentTasks === 'number' ? args.maxConcurrentTasks : existing?.maxConcurrentTasks
+            if (maxConcurrentTasks !== undefined) role.maxConcurrentTasks = maxConcurrentTasks
+            writeRole(agent, role)
+            return { ok: true, role }
+          })
+        }
+        case 'list': {
+          const dir = join(teamCwd(agent), TEAM_DIR, 'roles')
+          const roles: RoleDefinition[] = []
+          if (existsSync(dir)) {
+            for (const file of readdirSync(dir)) {
+              if (!file.endsWith('.json') || file === 'assignments.json') continue
+              try {
+                const role = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as RoleDefinition
+                roles.push(role)
+              } catch { /* skip corrupted */ }
+            }
+          }
+          // Include assignments alongside roles.
+          const assignments = readRoleAssignments(agent)
+          return Promise.resolve({ ok: true, roles, assignments })
+        }
+        case 'assign': {
+          const name = args.name
+          const session = args.session
+          if (typeof name !== 'string' || name.length === 0) throw new Error('team_role assign: name is required')
+          if (typeof session !== 'string' || session.length === 0) throw new Error('team_role assign: session is required')
+          if (!isSafeTeamId(session)) throw new Error('team_role assign: invalid session id')
+          const role = readRole(agent, name)
+          if (role === undefined) throw new Error(`team_role assign: role "${name}" is not defined`)
+          const assignmentsFile = join(teamCwd(agent), TEAM_DIR, 'roles', 'assignments.json')
+          return withFileLock(assignmentsFile, () => {
+            const assignments = readRoleAssignments(agent)
+            assignments[session] = name
+            writeRoleAssignments(agent, assignments)
+            return { ok: true, assignment: { session, role: name } }
+          })
+        }
+        case 'revoke': {
+          const session = args.session
+          if (typeof session !== 'string' || session.length === 0) throw new Error('team_role revoke: session is required')
+          if (!isSafeTeamId(session)) throw new Error('team_role revoke: invalid session id')
+          const assignmentsFile = join(teamCwd(agent), TEAM_DIR, 'roles', 'assignments.json')
+          return withFileLock(assignmentsFile, () => {
+            const assignments = readRoleAssignments(agent)
+            if (assignments[session] === undefined) {
+              return { ok: true, error: `session ${session.slice(0, 8)}... has no role assigned` }
+            }
+            const previousRole = assignments[session]
+            delete assignments[session]
+            writeRoleAssignments(agent, assignments)
+            return { ok: true, assignment: { session, role: '' }, ...previousRole !== undefined ? { revoked: previousRole } : {} }
+          })
+        }
+        default:
+          throw new Error(`team_role: unknown action "${String(args.action)}"`)
+      }
+    },
+    presentCall: args => ({ card: 'generic' as const, title: `Role ${args.action}`, kind: 'other' as const }),
+  }))
+
+  // -- team_auto_assign (F10: adaptive task assignment) --
+  // Reads presence + tasks.jsonl to pick the best peer for a task based on
+  // strategy: load_balance (fewest open tasks), affinity (writeSet match),
+  // history (most completed tasks), round_robin (cyclic).
+
+  /** F10: Read the round-robin counter state. */
+  function readAutoAssignState(agent: { session: { header?: { cwd?: string } } }): { roundRobinIndex: number } {
+    const file = join(teamCwd(agent), TEAM_DIR, 'auto_assign_state.json')
+    if (!existsSync(file)) return { roundRobinIndex: 0 }
+    try {
+      return JSON.parse(readFileSync(file, 'utf-8')) as { roundRobinIndex: number }
+    } catch {
+      return { roundRobinIndex: 0 }
+    }
+  }
+
+  /** F10: Write the round-robin counter state atomically. */
+  function writeAutoAssignState(agent: { session: { header?: { cwd?: string } } }, state: { roundRobinIndex: number }): void {
+    const file = join(teamCwd(agent), TEAM_DIR, 'auto_assign_state.json')
+    const dir = dirname(file)
+    mkdirSync(dir, { recursive: true })
+    const tmp = `${file}.${randomUUID()}.tmp`
+    writeFileSync(tmp, JSON.stringify(state))
+    renameSync(tmp, file)
+  }
+
+  ctx.tools.register(defineTool({
+    name: 'team_auto_assign',
+    description:
+      'F10: Adaptive task assignment. Picks the best peer for a task and assigns it (updates tasks.jsonl + notifies the peer). '
+      + 'Strategies: load_balance (fewest open tasks), affinity (writeSet overlap with task), history (most completed tasks), round_robin (cyclic). '
+      + 'Reads presence for live peers and tasks.jsonl for current load. Returns the assigned session and the reason.',
+    parameters: {
+      strategy: { type: 'string', required: true, enum: ['load_balance', 'affinity', 'history', 'round_robin'], description: 'Assignment strategy.' },
+      taskId: { type: 'string', description: 'Task id to assign. If omitted, picks the oldest unassigned todo task.' },
+      role: { type: 'string', description: 'Only consider peers assigned this role (via team_role).' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => {
+        const v = value as unknown as { ok: boolean; assignedSession?: string; reason?: string; taskId?: string; error?: string }
+        if (!v.ok) return [{ type: 'text' as const, text: `team_auto_assign failed: ${v.error ?? 'unknown error'}` }]
+        return [{ type: 'text' as const, text: `Assigned task ${v.taskId?.slice(0, 8) ?? ''}... to ${v.assignedSession?.slice(0, 8) ?? 'none'}... (${v.reason ?? 'no reason'})` }]
+      },
+    },
+    async execute(args, exec) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_auto_assign: no agent context')
+      try { writePresence(agent) } catch { /* best-effort */ }
+
+      const taskFile = teamPath(agent, 'tasks.jsonl')
+      const tasks = readJsonl<TeamTask>(taskFile)
+
+      // Resolve the target task.
+      let targetTask: TeamTask | undefined
+      if (args.taskId !== undefined) {
+        targetTask = tasks.findLast(t => t.id === args.taskId)
+        if (targetTask === undefined) return { ok: false, error: `task "${args.taskId}" not found` }
+      } else {
+        // Pick the oldest unassigned todo task.
+        const candidates = tasks.filter(t => t.status === 'todo' && t.assignee === undefined)
+        if (candidates.length === 0) return { ok: false, error: 'no unassigned todo task found' }
+        targetTask = candidates[0]
+      }
+      if (targetTask === undefined) return { ok: false, error: 'no target task' }
+
+      // Get live peers (excluding self first, but fall back to self if alone).
+      let peers = readAllPresence(agent).filter(p => p.id !== agent.session.id && isSafeTeamId(p.id))
+      if (peers.length === 0) {
+        // No peers: assign to self.
+        const selfPresence = readAllPresence(agent).filter(p => p.id === agent.session.id)
+        if (selfPresence.length === 0) return { ok: false, error: 'no live peers available' }
+        peers = selfPresence
+      }
+
+      // Filter by role if specified.
+      if (args.role !== undefined) {
+        const assignments = readRoleAssignments(agent)
+        const rolePeers = peers.filter(p => assignments[p.id] === args.role)
+        if (rolePeers.length > 0) peers = rolePeers
+        // If no peers have the role, fall back to all peers (best-effort).
+      }
+
+      const candidateIds = peers.map(p => p.id)
+      let assignedSession: string | undefined
+      let reason: string | undefined
+
+      switch (args.strategy) {
+        case 'load_balance': {
+          // Count open tasks per peer.
+          const load: Record<string, number> = {}
+          for (const id of candidateIds) load[id] = 0
+          for (const t of tasks) {
+            if (t.assignee !== undefined && t.status !== 'done' && t.status !== 'blocked') {
+              load[t.assignee] = (load[t.assignee] ?? 0) + 1
+            }
+          }
+          // Pick the peer with the fewest open tasks.
+          candidateIds.sort((a, b) => (load[a] ?? 0) - (load[b] ?? 0))
+          assignedSession = candidateIds[0]
+          reason = `load_balance: ${load[assignedSession ?? ''] ?? 0} open tasks`
+          break
+        }
+        case 'affinity': {
+          // Score peers by writeSet overlap with the task.
+          const taskWriteSet = targetTask.writeSet ?? []
+          const assignments = readRoleAssignments(agent)
+          let bestPeer = candidateIds[0]
+          let bestScore = -1
+          for (const id of candidateIds) {
+            const roleName = assignments[id]
+            const role = roleName !== undefined ? readRole(agent, roleName) : undefined
+            const peerWriteSet = role?.writeSet ?? []
+            let score = 0
+            for (const tw of taskWriteSet) {
+              for (const pw of peerWriteSet) {
+                if (writeSetsOverlap(tw, pw)) score++
+              }
+            }
+            if (score > bestScore) {
+              bestScore = score
+              bestPeer = id
+            }
+          }
+          assignedSession = bestPeer
+          reason = `affinity: writeSet overlap score ${bestScore}`
+          break
+        }
+        case 'history': {
+          // Count completed tasks per peer.
+          const done: Record<string, number> = {}
+          for (const t of tasks) {
+            if (t.status === 'done' && t.assignee !== undefined) {
+              done[t.assignee] = (done[t.assignee] ?? 0) + 1
+            }
+          }
+          // Pick the peer with the most completed tasks.
+          candidateIds.sort((a, b) => (done[b] ?? 0) - (done[a] ?? 0))
+          assignedSession = candidateIds[0]
+          reason = `history: ${done[assignedSession ?? ''] ?? 0} completed tasks`
+          break
+        }
+        case 'round_robin': {
+          const state = readAutoAssignState(agent)
+          const idx = state.roundRobinIndex % candidateIds.length
+          assignedSession = candidateIds[idx]
+          state.roundRobinIndex = (idx + 1) % candidateIds.length
+          writeAutoAssignState(agent, state)
+          reason = `round_robin: index ${idx}`
+          break
+        }
+        default:
+          return { ok: false, error: `unknown strategy "${String(args.strategy)}"` }
+      }
+
+      if (assignedSession === undefined) return { ok: false, error: 'no peer selected' }
+
+      // Assign the task to the selected peer (update tasks.jsonl + notify).
+      const taskId = targetTask.id
+      const taskTitle = targetTask.title
+      const now = () => new Date().toISOString()
+      await lockedUpdate<TeamTask>(taskFile, (records) => {
+        const task = records.find(t => t.id === taskId)
+        if (task !== undefined) {
+          task.assignee = assignedSession
+          if (task.status === 'todo') task.status = 'in_progress'
+          task.updatedTs = now()
+        }
+        return records
+      })
+
+      // Notify the assigned peer.
+      if (assignedSession !== agent.session.id) {
+        try {
+          await notifyPeer(agent, assignedSession, `[team_auto_assign] Task "${taskTitle}" assigned to you via ${args.strategy}. Claim or update it with team_task(action:"claim"|"update", id:"${taskId}").`)
+        } catch { /* best-effort */ }
+      }
+
+      return { ok: true, assignedSession, reason, taskId }
+    },
+    presentCall: args => ({ card: 'generic' as const, title: `Auto-assign ${args.strategy}`, kind: 'other' as const }),
+  }))
+
+  // -- team_agent_define (declarative agent definitions with hot reload) --
+  // Agent specs are stored in .team/agents/<name>.json. They define model,
+  // tools, permissions, system prompt, isolation, and MCP servers. Hot
+  // reload: an updated spec takes effect on the next read without restart.
+
+  /** Agent spec definition. */
+  interface AgentSpec {
+    name: string
+    description: string
+    model?: string
+    tools?: string[]
+    disallowedTools?: string[]
+    maxTurns?: number
+    permissionMode?: 'read_only' | 'accept_edits' | 'auto' | 'plan'
+    systemPrompt?: string
+    isolation?: 'worktree' | 'docker' | 'none'
+    mcpServers?: string[]
+    createdAt: string
+    updatedAt: string
+  }
+
+  /** Read an agent spec. */
+  function readAgentSpec(agent: { session: { header?: { cwd?: string } } }, name: string): AgentSpec | undefined {
+    const file = join(teamCwd(agent), TEAM_DIR, 'agents', `${name}.json`)
+    if (!existsSync(file)) return undefined
+    try {
+      return JSON.parse(readFileSync(file, 'utf-8')) as AgentSpec
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Write an agent spec atomically. */
+  function writeAgentSpec(agent: { session: { header?: { cwd?: string } } }, spec: AgentSpec): void {
+    const dir = join(teamCwd(agent), TEAM_DIR, 'agents')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, `${spec.name}.json`)
+    const tmp = `${file}.${randomUUID()}.tmp`
+    writeFileSync(tmp, JSON.stringify(spec, null, 2))
+    renameSync(tmp, file)
+  }
+
+  ctx.tools.register(defineTool({
+    name: 'team_agent_define',
+    description:
+      'Declarative agent definitions with hot reload. Agent specs live in .team/agents/<name>.json. '
+      + 'Actions: create (new spec), update (modify spec; hot-reloads without restarting running agents), delete (remove spec), list (all specs), get (one spec). '
+      + 'Spec includes: description, model, tools whitelist/blacklist, maxTurns, permissionMode, systemPrompt, isolation (worktree/docker/none), mcpServers. '
+      + 'Inspired by Claude Code .claude/agents/*.md and CrewAI agents/*.jsonc.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['create', 'update', 'delete', 'list', 'get'], description: 'Which agent spec operation to run.' },
+      name: { type: 'string', description: 'Agent name (create/update/delete/get).' },
+      spec: {
+        type: 'object',
+        additionalProperties: true,
+        description: 'Agent spec (create/update). { description, model?, tools?, disallowedTools?, maxTurns?, permissionMode?, systemPrompt?, isolation?, mcpServers? }',
+      },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => {
+        const v = value as unknown as { ok: boolean; spec?: AgentSpec; specs?: AgentSpec[]; error?: string }
+        if (!v.ok) return [{ type: 'text' as const, text: `team_agent_define failed: ${v.error ?? 'unknown error'}` }]
+        if (v.specs !== undefined) {
+          if (v.specs.length === 0) return [{ type: 'text' as const, text: 'No agent specs defined.' }]
+          const lines = v.specs.map(s => `  ${s.name}: model=${s.model ?? 'default'} tools=${s.tools?.length ?? '*'} isolation=${s.isolation ?? 'none'}`)
+          return [{ type: 'text' as const, text: `Agent specs:\n${lines.join('\n')}` }]
+        }
+        if (v.spec !== undefined) {
+          const s = v.spec
+          const lines = [
+            `Agent "${s.name}":`,
+            `  description: ${s.description}`,
+            `  model: ${s.model ?? 'default'}`,
+            `  tools: ${s.tools?.join(', ') ?? '*'}`,
+            `  disallowedTools: ${s.disallowedTools?.join(', ') ?? 'none'}`,
+            `  maxTurns: ${s.maxTurns ?? 'unlimited'}`,
+            `  permissionMode: ${s.permissionMode ?? 'default'}`,
+            `  isolation: ${s.isolation ?? 'none'}`,
+            `  mcpServers: ${s.mcpServers?.join(', ') ?? 'none'}`,
+          ]
+          return [{ type: 'text' as const, text: lines.join('\n') }]
+        }
+        return [{ type: 'text' as const, text: 'Agent spec operation completed.' }]
+      },
+    },
+    execute(args, exec) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_agent_define: no agent context')
+      try { writePresence(agent) } catch { /* best-effort */ }
+
+      switch (args.action) {
+        case 'create': {
+          const name = args.name
+          if (typeof name !== 'string' || name.length === 0) throw new Error('team_agent_define create: name is required')
+          if (!isSafeTeamId(name)) throw new Error('team_agent_define create: name must be a non-empty string without path separators')
+          const specArg = args.spec as Partial<AgentSpec> | undefined
+          if (specArg === undefined || typeof specArg.description !== 'string' || specArg.description.length === 0) {
+            throw new Error('team_agent_define create: spec.description is required')
+          }
+          const agentFile = join(teamCwd(agent), TEAM_DIR, 'agents', `${name}.json`)
+          return withFileLock(agentFile, () => {
+            if (existsSync(agentFile)) throw new Error(`team_agent_define create: agent "${name}" already exists (use update)`)
+            const now = new Date().toISOString()
+            const spec: AgentSpec = {
+              name,
+              description: specArg.description,
+              createdAt: now,
+              updatedAt: now,
+            }
+            if (typeof specArg.model === 'string') spec.model = specArg.model
+            if (Array.isArray(specArg.tools)) spec.tools = specArg.tools as string[]
+            if (Array.isArray(specArg.disallowedTools)) spec.disallowedTools = specArg.disallowedTools as string[]
+            if (typeof specArg.maxTurns === 'number') spec.maxTurns = specArg.maxTurns
+            if (typeof specArg.permissionMode === 'string') spec.permissionMode = specArg.permissionMode as AgentSpec['permissionMode']
+            if (typeof specArg.systemPrompt === 'string') spec.systemPrompt = specArg.systemPrompt
+            if (typeof specArg.isolation === 'string') spec.isolation = specArg.isolation as AgentSpec['isolation']
+            if (Array.isArray(specArg.mcpServers)) spec.mcpServers = specArg.mcpServers as string[]
+            writeAgentSpec(agent, spec)
+            return { ok: true, spec }
+          })
+        }
+        case 'update': {
+          const name = args.name
+          if (typeof name !== 'string' || name.length === 0) throw new Error('team_agent_define update: name is required')
+          if (!isSafeTeamId(name)) throw new Error('team_agent_define update: invalid name')
+          const specArg = args.spec as Partial<AgentSpec> | undefined
+          const agentFile = join(teamCwd(agent), TEAM_DIR, 'agents', `${name}.json`)
+          return withFileLock(agentFile, () => {
+            const existing = readAgentSpec(agent, name)
+            if (existing === undefined) throw new Error(`team_agent_define update: agent "${name}" not found (use create)`)
+            // Hot reload: update the spec in place; running agents pick up the
+            // change on their next read (no restart needed).
+            const spec: AgentSpec = {
+              ...existing,
+              updatedAt: new Date().toISOString(),
+            }
+            if (specArg !== undefined) {
+              if (typeof specArg.description === 'string') spec.description = specArg.description
+              if (typeof specArg.model === 'string') spec.model = specArg.model
+              if (Array.isArray(specArg.tools)) spec.tools = specArg.tools as string[]
+              if (Array.isArray(specArg.disallowedTools)) spec.disallowedTools = specArg.disallowedTools as string[]
+              if (typeof specArg.maxTurns === 'number') spec.maxTurns = specArg.maxTurns
+              if (typeof specArg.permissionMode === 'string') spec.permissionMode = specArg.permissionMode as AgentSpec['permissionMode']
+              if (typeof specArg.systemPrompt === 'string') spec.systemPrompt = specArg.systemPrompt
+              if (typeof specArg.isolation === 'string') spec.isolation = specArg.isolation as AgentSpec['isolation']
+              if (Array.isArray(specArg.mcpServers)) spec.mcpServers = specArg.mcpServers as string[]
+            }
+            writeAgentSpec(agent, spec)
+            return { ok: true, spec }
+          })
+        }
+        case 'delete': {
+          const name = args.name
+          if (typeof name !== 'string' || name.length === 0) throw new Error('team_agent_define delete: name is required')
+          if (!isSafeTeamId(name)) throw new Error('team_agent_define delete: invalid name')
+          const agentFile = join(teamCwd(agent), TEAM_DIR, 'agents', `${name}.json`)
+          return withFileLock(agentFile, () => {
+            if (!existsSync(agentFile)) return { ok: true, error: `agent "${name}" not found` }
+            try { unlinkSync(agentFile) } catch { /* best-effort */ }
+            return { ok: true }
+          })
+        }
+        case 'list': {
+          const dir = join(teamCwd(agent), TEAM_DIR, 'agents')
+          const specs: AgentSpec[] = []
+          if (existsSync(dir)) {
+            for (const file of readdirSync(dir)) {
+              if (!file.endsWith('.json')) continue
+              try {
+                const spec = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as AgentSpec
+                specs.push(spec)
+              } catch { /* skip corrupted */ }
+            }
+          }
+          return Promise.resolve({ ok: true, specs })
+        }
+        case 'get': {
+          const name = args.name
+          if (typeof name !== 'string' || name.length === 0) throw new Error('team_agent_define get: name is required')
+          const spec = readAgentSpec(agent, name)
+          if (spec === undefined) return Promise.resolve({ ok: false, error: `agent "${name}" not found` })
+          return Promise.resolve({ ok: true, spec })
+        }
+        default:
+          throw new Error(`team_agent_define: unknown action "${String(args.action)}"`)
+      }
+    },
+    presentCall: args => ({ card: 'generic' as const, title: `Agent ${args.action}`, kind: 'other' as const }),
+  }))
+  // 鈹€鈹€ session_delete tool 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
   ctx.tools.register(defineTool({
     name: 'session_delete',
