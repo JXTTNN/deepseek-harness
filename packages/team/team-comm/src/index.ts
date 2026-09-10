@@ -1658,12 +1658,12 @@ export function apply(ctx: Context): void {
         filesChanged: (args.filesChanged as unknown[]).map(p => String(p)),
         ...Array.isArray(args.decisions) ? { decisions: (args.decisions as unknown[]).map(d => String(d)) } : {},
         ...Array.isArray(args.openIssues) ? { openIssues: (args.openIssues as unknown[]).map(i => String(i)) } : {},
-        ...Array.isArray(args.evidence) ? { evidence: (args.evidence as unknown[]).map(e => {
+        ...Array.isArray(args.evidence) ? { evidence: (args.evidence as unknown[]).map((e): string | StructuredEvidence => {
           // F7: Auto-wrap plain strings as structured evidence for backward compat.
           if (typeof e === 'string') {
-            return { type: 'other' as const, status: 'pass' as const, artifact: e }
+            return { type: 'other', status: 'pass', artifact: e }
           }
-          return e
+          return e as StructuredEvidence
         }) } : {},
         ts: new Date().toISOString(),
       }
@@ -2359,6 +2359,7 @@ export function apply(ctx: Context): void {
       name: { type: 'string', required: true, description: 'Workflow name (used as the state file name).' },
       dag: {
         type: 'object',
+        additionalProperties: true,
         description: 'The DAG definition (create only). { nodes: [{ id, task_description, deps: string[], parallel?: boolean }], edges?: [{ from, to, condition? }] }',
       },
     },
@@ -2514,13 +2515,10 @@ export function apply(ctx: Context): void {
       for (const r of records) {
         const ts = (r as { ts?: string })?.ts
         if (typeof ts !== 'string') continue
-        events.push({
-          ts,
-          source: src.file,
-          action: src.action,
-          session: src.extractSession(r),
-          payload: r,
-        })
+        const session = src.extractSession(r)
+        const event: AuditEvent = { ts, source: src.file, action: src.action, payload: r }
+        if (session !== undefined) event.session = session
+        events.push(event)
       }
     }
 
@@ -2533,13 +2531,10 @@ export function apply(ctx: Context): void {
         for (const r of records) {
           const ts = (r as { ts?: string })?.ts
           if (typeof ts !== 'string') continue
-          events.push({
-            ts,
-            source: `inbox/${file}`,
-            action: 'message',
-            session: (r as { from?: string })?.from,
-            payload: r,
-          })
+          const session = (r as { from?: string })?.from
+          const event: AuditEvent = { ts, source: `inbox/${file}`, action: 'message', payload: r }
+          if (session !== undefined) event.session = session
+          events.push(event)
         }
       }
     }
@@ -2551,13 +2546,10 @@ export function apply(ctx: Context): void {
       for (const r of records) {
         const ts = (r as { ts?: string })?.ts
         if (typeof ts !== 'string') continue
-        events.push({
-          ts,
-          source: 'think.log',
-          action: 'think',
-          session: (r as { session?: string })?.session,
-          payload: r,
-        })
+        const session = (r as { session?: string })?.session
+        const event: AuditEvent = { ts, source: 'think.log', action: 'think', payload: r }
+        if (session !== undefined) event.session = session
+        events.push(event)
       }
     }
 
