@@ -82,7 +82,7 @@ class D3ViewerService extends Service {
       apiEndpoint: config.apiEndpoint
         ?? process.env.MESHY_API_URL
         ?? process.env.THREE_API_URL
-        ?? DEFAULT_ENDPOINTS[provider],
+        ?? (DEFAULT_ENDPOINTS[provider] as string),
       apiKey: config.apiKey ?? process.env.MESHY_API_KEY ?? process.env.TRIPO_API_KEY ?? '',
       provider,
     }
@@ -315,7 +315,7 @@ class D3ViewerService extends Service {
 }
 
 export function apply(ctx: Context, config: D3ViewerConfig): void {
-  ctx.service.register(new D3ViewerService(ctx, config))
+  (ctx as any).service.register(new D3ViewerService(ctx, config))
 }
 
 export default { name, inject, apply }
