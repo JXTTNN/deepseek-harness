@@ -14,7 +14,6 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { JsonValue, ContentBlock } from '@deepseek-ai/cordis'
 import { buildPrimitive, engineInfo, type BridgeResponse } from './bridge.ts'
 
 export const name = 'plugin-3d-viewer'
@@ -73,7 +72,7 @@ class D3ViewerService extends Service {
   private config: Required<D3ViewerConfig>
 
   constructor(ctx: Context, config: D3ViewerConfig) {
-    super(ctx)
+    super(ctx, name)
     const provider = config.provider ?? 'meshy'
     this.config = {
       wsPort: config.wsPort ?? 8310,
@@ -101,7 +100,7 @@ class D3ViewerService extends Service {
   }
 
   private registerTools(): void {
-    const ctx = this.ctx
+    const ctx = this.ctx as any
 
     // -------------------------------------------------------------------------
     // 3d_build — LOCAL, free, unlimited, no API key (embedded trimesh engine)
@@ -135,7 +134,7 @@ class D3ViewerService extends Service {
           createdAt: Date.now(),
           progress: 100,
           source: 'local',
-          data: res.data,
+          ...(res.data !== undefined ? { data: res.data } : {}),
         }
         this.models.set(id, metadata)
 
