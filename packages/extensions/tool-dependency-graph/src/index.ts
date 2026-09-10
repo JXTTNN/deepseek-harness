@@ -3,10 +3,10 @@
  * visualise circular dependencies, unused dependencies, and version conflicts.
  *
  * The `dependency_graph` tool supports four actions:
- *  - `"analyze"`   鈫?return the complete dependency graph (nodes + edges)
- *  - `"cycles"`    鈫?detect circular dependencies via DFS
- *  - `"unused"`    鈫?detect dependencies declared but never imported
- *  - `"conflicts"` 鈫?detect version conflicts across the dependency tree
+ *  - `"analyze"`   → return the complete dependency graph (nodes + edges)
+ *  - `"cycles"`    → detect circular dependencies via DFS
+ *  - `"unused"`    → detect dependencies declared but never imported
+ *  - `"conflicts"` → detect version conflicts across the dependency tree
  *
  * Supported package managers: npm, pnpm, yarn (package.json), pip
  * (requirements.txt / pyproject.toml), cargo (Cargo.toml). The manager is
@@ -212,7 +212,7 @@ function buildGraph(root: string, pm: PackageManager, scope: string | undefined)
           continue
         }
         if (!inDeps || trimmed.length === 0 || trimmed.startsWith('#')) continue
-        const match = trimmed.match(/^([A-Za-z0-9_-]+)\s*=\s*"?([0-9A-Za-z.*-]*)"?
+        const match = trimmed.match(/^([A-Za-z0-9_-]+)\s*=\s*"?([0-9A-Za-z.*-]*)"?/)
         if (match) {
           addNode(match[1]!, match[2] ?? '*', 'prod')
           edges.push({ from: pkgName, to: match[1]! })
@@ -261,7 +261,7 @@ function detectCycles(graph: GraphResult): GraphIssue[] {
         const cycle = stack.slice(idx)
         issues.push({
           type: 'cycle',
-          description: `Circular dependency: ${cycle.join(' 鈫?')} 鈫?${v}`,
+          description: `Circular dependency: ${cycle.join(' → ')} → ${v}`,
           packages: cycle,
         })
       } else if (cv === WHITE) {
@@ -303,7 +303,7 @@ function detectUnused(root: string, graph: GraphResult, pm: PackageManager, scop
     let match: RegExpExecArray | null
     while ((match = importRe.exec(content)) !== null) {
       let pkg = match[1]!
-      // Strip path: @scope/pkg/subpath 鈫?@scope/pkg
+      // Strip path: @scope/pkg/subpath → @scope/pkg
       if (pkg.startsWith('@')) {
         const parts = pkg.split('/')
         pkg = parts.slice(0, 2).join('/')
