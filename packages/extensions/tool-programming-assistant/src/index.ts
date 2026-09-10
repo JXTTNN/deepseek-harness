@@ -46,11 +46,6 @@ function sh(cmd: string, cwd?: string, timeoutMs = 15_000): string {
   }
 }
 
-/** Read file lines and return a trimmed slice around a range. */
-function sliceLines(content: string, start: number, end: number): string {
-  return content.split('\n').slice(start - 1, end).join('\n')
-}
-
 // ---------------------------------------------------------------------------
 // Tool definitions
 // ---------------------------------------------------------------------------
@@ -177,7 +172,7 @@ export function apply(ctx: Context): void {
 
       // Extract doc comments (leading // or block /* */ or /** */)
       const docComments = [...content.matchAll(/\/\*\*([\s\S]*?)\*\//g)]
-        .map(m => m[1].replace(/^\s*\*\s?/gm, '').trim())
+        .map(m => (m[1] ?? '').replace(/^\s*\*\s?/gm, '').trim())
         .filter(d => d.length > 5)
 
       // Identify exported symbols
