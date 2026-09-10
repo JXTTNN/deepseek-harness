@@ -137,7 +137,7 @@ const server = http.createServer(async (req, res) => {
 
     const model = request.model || 'deepseek-v4-flash'
     const messages = request.messages || []
-    const lastMsg = messages[messages.length - 1]?.content || ''
+
 
     // Check for tool calls
     const toolCall = request.tools?.find((t: any) => 
@@ -172,7 +172,7 @@ const server = http.createServer(async (req, res) => {
     // If tool call requested, emit it
     if (toolCall) {
       const toolName = toolCall.function.name
-      const args = defaultConfig.toolSchema[toolName]?.function?.properties || {}
+
       
       const toolChunk = {
         id: randomUUID(),
@@ -191,8 +191,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Final content chunk
-    const responses = defaultConfig.modelResponses[model] || defaultConfig.modelResponses['deepseek-v4-flash']
-    const finalContent = responses[Math.floor(Math.random() * responses.length)]
+    const responses = defaultConfig.modelResponses[model] ?? defaultConfig.modelResponses['deepseek-v4-flash'] ?? []
+    const finalContent = responses[Math.floor(Math.random() * responses.length)] ?? ''
     
     const finalChunk = {
       id: randomUUID(),
