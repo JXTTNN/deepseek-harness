@@ -49,7 +49,7 @@ export async function callEngine3d(request: BridgeRequest, timeoutMs = 30_000): 
       timeout: timeoutMs,
       encoding: 'utf-8',
       env: { ...process.env },
-    },
+    } as any,
   )
 
   // Engine3d always writes valid JSON to stdout, even on error.
