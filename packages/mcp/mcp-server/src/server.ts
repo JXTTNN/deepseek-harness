@@ -95,6 +95,9 @@ export function startServer(ctx: Context, config: Config): ServerHandle {
 
   const ready: Promise<ServerOutcome> = (async () => {
     try {
+      // sampling and roots are client capabilities in the MCP spec, but we
+      // declare them here so clients know the server will issue these requests.
+      // The SDK's ServerCapabilities type does not include them, so cast.
       server = new Server(
         { name: config.serverName, version: '0.1.0' },
         {
@@ -104,7 +107,7 @@ export function startServer(ctx: Context, config: Config): ServerHandle {
             prompts: {},
             sampling: {},
             roots: { listChanged: true },
-          },
+          } as unknown as Record<string, unknown>,
         },
       )
 
@@ -112,7 +115,7 @@ export function startServer(ctx: Context, config: Config): ServerHandle {
       registerResourceHandlers(ctx, server)
       registerPromptHandlers(ctx, server)
       registerSamplingHandler(ctx, server)
-      registerRootsHandler(ctx, server)
+      registerRootsHandler(server)
 
       const transport = createTransport(config)
       await server.connect(transport)
@@ -647,7 +650,7 @@ function registerSamplingHandler(ctx: Context, server: Server): void {
  * The workspace root is derived from `process.cwd()`; on multi-root setups
  * callers can extend this by re-invoking after changing the working directory.
  */
-function registerRootsHandler(ctx: Context, server: Server): void {
+function registerRootsHandler(server: Server): void {
   server.setRequestHandler(ListRootsRequestSchema, async () => {
     const cwd = process.cwd()
     return {
