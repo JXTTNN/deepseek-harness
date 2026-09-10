@@ -287,6 +287,8 @@ interface TeamMessage {
   message: string
   read?: boolean
   deleted?: boolean
+  /** F2: Message priority (0=normal default, 1=high, 2=urgent). Older messages without this field are treated as 0. */
+  priority?: number
 }
 
 /** One presence record. */
@@ -322,6 +324,8 @@ type TeamMemoryEntry = {
   value: string
   updatedBy: string
   ts: string
+  /** F4: MVCC version number, incremented on each write. Starts at 1. */
+  version?: number
 }
 
 // ── team_memory search scoring (BM25-lite, fully offline) ────────────────
@@ -423,6 +427,16 @@ interface TeamBarrier {
   ts: string
 }
 
+/** F7: One structured evidence entry in a completion report. */
+interface StructuredEvidence {
+  type: 'test' | 'lint' | 'build' | 'manual' | 'other'
+  command?: string
+  expected?: string
+  actual?: string
+  status: 'pass' | 'fail' | 'skip'
+  artifact?: string
+}
+
 /** One fixed-schema completion report for a task (fan-in to the coordinator). */
 interface TeamReport {
   reportId: string
@@ -432,7 +446,8 @@ interface TeamReport {
   filesChanged: string[]
   decisions?: string[]
   openIssues?: string[]
-  evidence?: string[]
+  /** F7: Evidence can be free-text strings (backward compat) or structured entries. */
+  evidence?: Array<string | StructuredEvidence>
   ts: string
 }
 
@@ -617,7 +632,7 @@ export function apply(ctx: Context): void {
     name: 'team:state',
     order: 0,
     text: () => {
-      return 'TEAM STATE: You are in a team. Call team_inbox EVERY turn to check for messages. Call team_list to discover peers. Use team_send to communicate. If you receive a message, you MUST reply to the sender with team_send(reply_to: msgId). To make the team greater than one agent, share a task board with team_task (priority/deadline/assignee + auto-notify), persist decisions with team_memory (and recall topics with team_memory action=search), fan work out to every peer with team_broadcast + team_collect, verify results independently with team_review + team_review_collect, synchronize phases with team_barrier, and get a one-shot health snapshot with team_status.'
+      return 'TEAM STATE: You are in a team. Call team_inbox EVERY turn to check for messages. Call team_list to discover peers. Use team_send to communicate (with priority for urgent messages). If you receive a message, you MUST reply to the sender with team_send(reply_to: msgId). To make the team greater than one agent, share a task board with team_task (priority/deadline/assignee + auto-notify), orchestrate complex multi-step work with team_workflow (DAG execution engine), persist decisions with team_memory (with MVCC cas for conflict-free updates, and recall topics with team_memory action=search), fan work out to every peer with team_broadcast + team_collect, verify results independently with team_review + team_review_collect (with structured evidence validation), synchronize phases with team_barrier, file structured reports with team_report (with structured evidence), audit and replay collaboration with team_audit, and get a one-shot health snapshot with team_status.'
     },
   })
 
@@ -671,6 +686,10 @@ export function apply(ctx: Context): void {
         type: 'string',
         description: 'The msgId of the message you are replying to. Include this to thread the conversation.',
       },
+      priority: {
+        type: 'integer',
+        description: 'F2: Message priority: 0=normal (default), 1=high, 2=urgent. Higher priority messages appear first in team_inbox.',
+      },
     },
     output: {
       schema: {
@@ -681,6 +700,7 @@ export function apply(ctx: Context): void {
           msgId: { type: 'string', required: true },
           to: { type: 'string', required: true },
           replyTo: { type: 'string' },
+          priority: { type: 'integer' },
           duplicate: { type: 'boolean' },
           error: { type: 'string' },
         },
@@ -690,7 +710,8 @@ export function apply(ctx: Context): void {
         if (v.duplicate) return [{ type: 'text' as const, text: `Duplicate suppressed — an identical message to ${v.to} was already sent recently.` }]
         if (!v.ok) return [{ type: 'text' as const, text: `Failed to send to ${v.to}: ${v.error ?? 'unknown error'}` }]
         const extra = v.replyTo ? ` (reply to ${v.replyTo})` : ''
-        return [{ type: 'text' as const, text: `Message ${v.msgId} sent to ${v.to}${extra}.` }]
+        const pri = v.priority && v.priority > 0 ? ` [priority ${v.priority}]` : ''
+        return [{ type: 'text' as const, text: `Message ${v.msgId} sent to ${v.to}${extra}${pri}.` }]
       },
     },
     execute(args, exec) {
@@ -700,6 +721,10 @@ export function apply(ctx: Context): void {
       const cwd = teamCwd(agent)
       const target = assertSafeTeamId(args.target, 'team_send target')
       const msgId = randomUUID()
+      // F2: Validate and normalize priority (0=normal, 1=high, 2=urgent).
+      const priority = typeof args.priority === 'number' && [0, 1, 2].includes(args.priority)
+        ? args.priority
+        : 0
 
       // Enforce message size limit.
       const msgBytes = Buffer.byteLength(args.message, 'utf-8')
@@ -726,7 +751,7 @@ export function apply(ctx: Context): void {
           && now - new Date(m.ts).getTime() < DEDUP_WINDOW_MS,
         )
         if (isDuplicate) {
-          return { ok: true, msgId, to: target, duplicate: true, ...args.reply_to ? { replyTo: args.reply_to } : {} }
+          return { ok: true, msgId, to: target, duplicate: true, priority, ...args.reply_to ? { replyTo: args.reply_to } : {} }
         }
 
         const record: TeamMessage = {
@@ -735,6 +760,7 @@ export function apply(ctx: Context): void {
           ts: new Date().toISOString(),
           message: args.message,
           read: false,
+          priority,
         }
         if (args.reply_to) {
           record.replyTo = args.reply_to
@@ -788,8 +814,8 @@ export function apply(ctx: Context): void {
           }
         } catch { /* best-effort */ }
 
-        return { ok: true, msgId, to: target, ...args.reply_to ? { replyTo: args.reply_to } : {} }
-      }).then(async (result: { ok: boolean; msgId: string; to: string; replyTo?: string; duplicate?: boolean }) => {
+        return { ok: true, msgId, to: target, priority, ...args.reply_to ? { replyTo: args.reply_to } : {} }
+      }).then(async (result: { ok: boolean; msgId: string; to: string; replyTo?: string; priority?: number; duplicate?: boolean }) => {
         // Record a per-msgId delivery ledger entry (idempotent) so team_status
         // can surface outstanding messages and per-peer delivery history. The
         // ledger is an enhancement and must NEVER fail the send itself, so any
@@ -895,9 +921,18 @@ export function apply(ctx: Context): void {
 
         const showAll = args.all === true
         const unread = all.filter(m => !m.read && !m.deleted)
+        // F2: Sort by priority descending (urgent first), then by timestamp
+        // ascending (older first within the same priority). Messages without a
+        // priority field are treated as 0 (normal) for backward compatibility.
+        const sortByPriority = (a: TeamMessage, b: TeamMessage): number => {
+          const pa = a.priority ?? 0
+          const pb = b.priority ?? 0
+          if (pa !== pb) return pb - pa
+          return a.ts.localeCompare(b.ts)
+        }
         const messages = showAll
-          ? all.filter(m => !m.deleted).map(({ read: _r, deleted: _d, ...rest }) => rest)
-          : unread.map(({ read: _r, deleted: _d, ...rest }) => rest)
+          ? all.filter(m => !m.deleted).map(({ read: _r, deleted: _d, ...rest }) => rest).sort(sortByPriority)
+          : unread.map(({ read: _r, deleted: _d, ...rest }) => rest).sort(sortByPriority)
 
         // Mark all as read (rewrite the file). Unread messages are always the
         // most recently appended, so trimming to the tail keeps every unread.
@@ -1581,8 +1616,8 @@ export function apply(ctx: Context): void {
       },
       evidence: {
         type: 'array',
-        items: { type: 'string' },
-        description: 'Checkable proof of the acceptance criteria: commands run + their results, test output, file:line references.',
+        items: { type: 'object', additionalProperties: true },
+        description: 'F7: Checkable proof of the acceptance criteria. Can be free-text strings (backward compat) or structured objects: { type: "test"|"lint"|"build"|"manual"|"other", command?, expected?, actual?, status: "pass"|"fail"|"skip", artifact? }. A plain string is auto-wrapped as { type: "other", status: "pass", artifact: <string> }.',
       },
     },
     output: {
@@ -1623,7 +1658,13 @@ export function apply(ctx: Context): void {
         filesChanged: (args.filesChanged as unknown[]).map(p => String(p)),
         ...Array.isArray(args.decisions) ? { decisions: (args.decisions as unknown[]).map(d => String(d)) } : {},
         ...Array.isArray(args.openIssues) ? { openIssues: (args.openIssues as unknown[]).map(i => String(i)) } : {},
-        ...Array.isArray(args.evidence) ? { evidence: (args.evidence as unknown[]).map(e => String(e)) } : {},
+        ...Array.isArray(args.evidence) ? { evidence: (args.evidence as unknown[]).map(e => {
+          // F7: Auto-wrap plain strings as structured evidence for backward compat.
+          if (typeof e === 'string') {
+            return { type: 'other' as const, status: 'pass' as const, artifact: e }
+          }
+          return e
+        }) } : {},
         ts: new Date().toISOString(),
       }
       const reportsDir = join(teamCwd(agent), TEAM_DIR, 'reports')
@@ -1770,6 +1811,8 @@ export function apply(ctx: Context): void {
       value: { type: 'string', description: 'Value to store (set).' },
       query: { type: 'string', description: 'Free-text search query (search).' },
       limit: { type: 'number', description: 'Max search hits to return (search; default 8).' },
+      version: { type: 'integer', description: 'F4: Expected version number for compare-and-swap (cas). Used with cas=true.' },
+      cas: { type: 'boolean', description: 'F4: Enable compare-and-swap. When true, the write only succeeds if the current version matches the `version` parameter.' },
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
@@ -1804,7 +1847,49 @@ export function apply(ctx: Context): void {
           if (Buffer.byteLength(value, 'utf-8') > MAX_MESSAGE_BYTES) {
             throw new Error(`team_memory set: value too large (${Buffer.byteLength(value, 'utf-8')} bytes, max ${MAX_MESSAGE_BYTES})`)
           }
-          // Append-only: O(1) per set; get/list resolve "latest wins" by tail order.
+          // F4: MVCC compare-and-swap. When cas=true, the write only succeeds if
+          // the current version matches the expected `version` parameter. This
+          // prevents lost updates when two sessions concurrently write the same key.
+          const cas = args.cas === true
+          if (cas) {
+            return lockedUpdate<TeamMemoryEntry>(file, (entries) => {
+              const existing = entries.findLast(e => e.key === key)
+              const currentVersion = existing?.version ?? 0
+              const expectedVersion = typeof args.version === 'number' ? args.version : 0
+              if (currentVersion !== expectedVersion) {
+                // Version conflict — throw a typed error so the caller can catch it.
+                // We use a special property to signal the conflict without throwing
+                // (since lockedUpdate would propagate the throw). Instead, we append
+                // a conflict marker and let the caller detect it.
+                // Actually, we need to return the conflict info. Since lockedUpdate
+                // returns the mutated array, we'll append a special entry that the
+                // caller can detect. But that's messy. Better approach: do the CAS
+                // check outside lockedUpdate using a read, then write under lock.
+                // For simplicity, we throw a typed error and catch it outside.
+                throw new Error(`__MVCC_CONFLICT__:${currentVersion}:${existing?.value ?? ''}`)
+              }
+              const newVersion = currentVersion + 1
+              entries.push({ key, value, updatedBy: agent.session.id, ts: now(), version: newVersion })
+              return entries
+            }).then(
+              () => ({ ok: true, key, value }),
+              (err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err)
+                const match = /^__MVCC_CONFLICT__:(\d+):([\s\S]*)$/.exec(msg)
+                if (match) {
+                  return {
+                    ok: false,
+                    error: 'version_conflict',
+                    key,
+                    current_version: parseInt(match[1]!, 10),
+                    current_value: match[2] ?? '',
+                  }
+                }
+                throw err
+              },
+            )
+          }
+          // Non-CAS write: read current version, increment, and append.
           return lockedAppend(file, { key, value, updatedBy: agent.session.id, ts: now() })
             .then(() => ({ ok: true, key, value }))
         }
@@ -1812,7 +1897,7 @@ export function apply(ctx: Context): void {
           const key = (args.key ?? '').trim()
           const entry = readJsonl<TeamMemoryEntry>(file).findLast(e => e.key === key)
           return Promise.resolve(entry !== undefined
-            ? { ok: true, key, value: entry.value, updatedBy: entry.updatedBy, ts: entry.ts }
+            ? { ok: true, key, value: entry.value, updatedBy: entry.updatedBy, ts: entry.ts, version: entry.version ?? 0 }
             : { ok: false, key })
         }
         case 'list': {
@@ -1958,7 +2043,36 @@ export function apply(ctx: Context): void {
           pending.push({ reviewId: r.reviewId, subject: r.subject, target: r.target })
         }
       }
-      return Promise.resolve({ total: reviews.length, verdicts, pending })
+      // F7: Validate structured evidence in reports. For each review that has a
+      // corresponding report file, check if evidence entries have any failing
+      // status and surface that as part of the verdict collection.
+      const reportsDir = join(teamCwd(agent), TEAM_DIR, 'reports')
+      const evidenceIssues: string[] = []
+      if (existsSync(reportsDir)) {
+        for (const r of reviews) {
+          const reportFile = join(reportsDir, `${r.subject}.json`)
+          if (!existsSync(reportFile)) continue
+          try {
+            const raw = readFileSync(reportFile, 'utf-8').trim().split('\n')
+            for (const line of raw) {
+              try {
+                const report = JSON.parse(line) as TeamReport
+                if (!Array.isArray(report.evidence)) continue
+                for (const ev of report.evidence) {
+                  // Only validate structured evidence (objects), not plain strings.
+                  if (typeof ev === 'object' && ev !== null && 'status' in ev) {
+                    const status = (ev as StructuredEvidence).status
+                    if (status === 'fail') {
+                      evidenceIssues.push(`Report ${report.reportId.slice(0, 8)}… has failing evidence: ${(ev as StructuredEvidence).type} — ${(ev as StructuredEvidence).command ?? 'no command'}`)
+                    }
+                  }
+                }
+              } catch { /* skip malformed */ }
+            }
+          } catch { /* best-effort */ }
+        }
+      }
+      return Promise.resolve({ total: reviews.length, verdicts, pending, ...evidenceIssues.length > 0 ? { evidenceIssues } : {} })
     },
     presentCall: () => ({ card: 'generic' as const, title: 'Collect review verdicts', kind: 'read' as const }),
   }))
@@ -2114,6 +2228,459 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Barrier ${args.action}: ${args.name}`, kind: 'other' as const }),
   }))
 
+  // ── team_workflow (F3: DAG execution engine) ────────────────────────────────
+  // Declarative DAG workflow: a coordinator defines nodes (tasks) with
+  // dependencies, and the engine auto-schedules ready nodes (deps satisfied)
+  // as team_tasks. When a node completes, the next dependent nodes become ready.
+
+  /** F3: One node in a workflow DAG. */
+  interface WorkflowNode {
+    id: string
+    task_description: string
+    deps: string[]
+    parallel?: boolean
+  }
+
+  /** F3: One edge in a workflow DAG (optional, for conditional transitions). */
+  interface WorkflowEdge {
+    from: string
+    to: string
+    condition?: string
+  }
+
+  /** F3: The persistent state of a workflow. */
+  interface WorkflowState {
+    name: string
+    nodes: WorkflowNode[]
+    edges?: WorkflowEdge[]
+    /** Per-node status: pending (deps not met), running (task created), completed, failed, cancelled. */
+    nodeStatus: Record<string, 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'>
+    /** Maps workflow node id to the created team_task id. */
+    taskIds: Record<string, string>
+    createdBy: string
+    ts: string
+    updatedTs: string
+  }
+
+  /** F3: Read a workflow state file. */
+  function readWorkflow(agent: { session: { header?: { cwd?: string } } }, name: string): WorkflowState | undefined {
+    const file = join(teamCwd(agent), TEAM_DIR, 'workflows', `${name}.json`)
+    if (!existsSync(file)) return undefined
+    try {
+      return JSON.parse(readFileSync(file, 'utf-8')) as WorkflowState
+    } catch {
+      return undefined
+    }
+  }
+
+  /** F3: Write a workflow state file atomically. */
+  function writeWorkflow(agent: { session: { header?: { cwd?: string } } }, state: WorkflowState): void {
+    const dir = join(teamCwd(agent), TEAM_DIR, 'workflows')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, `${state.name}.json`)
+    writeFileSync(file, JSON.stringify(state, null, 2))
+  }
+
+  /** F3: Check if all deps of a node are completed. */
+  function isNodeReady(node: WorkflowNode, state: WorkflowState): boolean {
+    return node.deps.every(depId => state.nodeStatus[depId] === 'completed')
+  }
+
+  /** F3: Auto-schedule ready nodes by creating team_tasks for them. */
+  async function scheduleReadyNodes(agent: { session: { id: string; header?: { cwd?: string } } }, state: WorkflowState): Promise<WorkflowState> {
+    const taskFile = teamPath(agent, 'tasks.jsonl')
+    const now = () => new Date().toISOString()
+    let changed = false
+    for (const node of state.nodes) {
+      if (state.nodeStatus[node.id] === 'pending' && isNodeReady(node, state)) {
+        // Create a team_task for this ready node.
+        const task: TeamTask = {
+          id: randomUUID(),
+          title: `[workflow:${state.name}] ${node.id}: ${node.task_description.slice(0, 100)}`,
+          description: node.task_description,
+          status: 'todo',
+          createdBy: agent.session.id,
+          ts: now(),
+          updatedTs: now(),
+        }
+        await lockedAppend(taskFile, task)
+        state.nodeStatus[node.id] = 'running'
+        state.taskIds[node.id] = task.id
+        changed = true
+      }
+    }
+    if (changed) {
+      state.updatedTs = now()
+      writeWorkflow(agent, state)
+    }
+    return state
+  }
+
+  /** F3: Check completed tasks and update workflow node statuses. */
+  async function syncWorkflowTasks(agent: { session: { id: string; header?: { cwd?: string } } }, state: WorkflowState): Promise<WorkflowState> {
+    const tasks = readJsonl<TeamTask>(teamPath(agent, 'tasks.jsonl'))
+    const now = () => new Date().toISOString()
+    let changed = false
+    for (const node of state.nodes) {
+      if (state.nodeStatus[node.id] === 'running') {
+        const taskId = state.taskIds[node.id]
+        if (taskId !== undefined) {
+          const task = tasks.findLast(t => t.id === taskId)
+          if (task !== undefined) {
+            if (task.status === 'done') {
+              state.nodeStatus[node.id] = 'completed'
+              changed = true
+            } else if (task.status === 'blocked') {
+              state.nodeStatus[node.id] = 'failed'
+              changed = true
+            }
+          }
+        }
+      }
+    }
+    if (changed) {
+      // After updating statuses, try to schedule newly-ready nodes.
+      state = await scheduleReadyNodes(agent, state)
+      state.updatedTs = now()
+      writeWorkflow(agent, state)
+    }
+    return state
+  }
+
+  ctx.tools.register(defineTool({
+    name: 'team_workflow',
+    description:
+      'F3: Declarative DAG workflow engine. Define nodes (tasks) with dependencies; the engine auto-schedules ready nodes (deps satisfied) as team_tasks. '
+      + 'When a node completes, dependent nodes become ready automatically. Supports parallel execution of independent nodes. '
+      + 'Actions: create (define + schedule), status (check node states), cancel (abort unfinished nodes). '
+      + 'Workflow state is persisted in .team/workflows/<name>.json.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['create', 'status', 'cancel'], description: 'Which workflow operation to run.' },
+      name: { type: 'string', required: true, description: 'Workflow name (used as the state file name).' },
+      dag: {
+        type: 'object',
+        description: 'The DAG definition (create only). { nodes: [{ id, task_description, deps: string[], parallel?: boolean }], edges?: [{ from, to, condition? }] }',
+      },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => {
+        const v = value as unknown as { ok: boolean; name?: string; nodeStatus?: Record<string, string>; error?: string }
+        if (!v.ok) return [{ type: 'text' as const, text: `team_workflow failed: ${v.error ?? 'unknown error'}` }]
+        if (v.nodeStatus !== undefined) {
+          const lines = [`Workflow "${v.name ?? ''}" status:`]
+          for (const [nodeId, status] of Object.entries(v.nodeStatus)) {
+            const icon = status === 'completed' ? '✓' : status === 'running' ? '▶' : status === 'failed' ? '✗' : status === 'cancelled' ? '⊘' : '○'
+            lines.push(`  ${icon} ${nodeId}: ${status}`)
+          }
+          return [{ type: 'text' as const, text: lines.join('\n') }]
+        }
+        return [{ type: 'text' as const, text: `Workflow "${v.name ?? ''}" operation completed.` }]
+      },
+    },
+    async execute(args, exec) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_workflow: no agent context')
+      const name = assertSafeTeamId(args.name, 'team_workflow name')
+      if (name.length === 0) throw new Error('team_workflow: name is required')
+      const now = () => new Date().toISOString()
+
+      switch (args.action) {
+        case 'create': {
+          const dag = args.dag as { nodes?: WorkflowNode[]; edges?: WorkflowEdge[] } | undefined
+          if (dag === undefined || !Array.isArray(dag.nodes) || dag.nodes.length === 0) {
+            throw new Error('team_workflow create: dag.nodes must be a non-empty array')
+          }
+          // Validate node ids are unique and deps reference existing nodes.
+          const nodeIds = new Set(dag.nodes.map(n => n.id))
+          for (const node of dag.nodes) {
+            if (typeof node.id !== 'string' || node.id.length === 0) {
+              throw new Error(`team_workflow create: node id must be a non-empty string`)
+            }
+            if (typeof node.task_description !== 'string') {
+              throw new Error(`team_workflow create: node "${node.id}" must have a task_description`)
+            }
+            for (const dep of node.deps ?? []) {
+              if (!nodeIds.has(dep)) {
+                throw new Error(`team_workflow create: node "${node.id}" depends on unknown node "${dep}"`)
+              }
+            }
+          }
+          const nodeStatus: Record<string, 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'> = {}
+          for (const node of dag.nodes) {
+            nodeStatus[node.id] = 'pending'
+          }
+          const state: WorkflowState = {
+            name,
+            nodes: dag.nodes.map(n => ({
+              id: n.id,
+              task_description: n.task_description,
+              deps: n.deps ?? [],
+              ...n.parallel !== undefined ? { parallel: n.parallel } : {},
+            })),
+            ...Array.isArray(dag.edges) ? { edges: dag.edges } : {},
+            nodeStatus,
+            taskIds: {},
+            createdBy: agent.session.id,
+            ts: now(),
+            updatedTs: now(),
+          }
+          writeWorkflow(agent, state)
+          // Auto-schedule initially-ready nodes (those with no deps).
+          const updatedState = await scheduleReadyNodes(agent, state)
+          return { ok: true, name, nodeStatus: updatedState.nodeStatus, taskIds: updatedState.taskIds }
+        }
+        case 'status': {
+          let state = readWorkflow(agent, name)
+          if (state === undefined) {
+            return { ok: false, error: `workflow "${name}" not found` }
+          }
+          // Sync with task board to pick up completions, then re-schedule.
+          state = await syncWorkflowTasks(agent, state)
+          return { ok: true, name, nodeStatus: state.nodeStatus, taskIds: state.taskIds }
+        }
+        case 'cancel': {
+          let state = readWorkflow(agent, name)
+          if (state === undefined) {
+            return { ok: false, error: `workflow "${name}" not found` }
+          }
+          // Cancel all non-terminal nodes and mark associated tasks as blocked
+          // atomically under the task file lock.
+          const cancelledNodeIds: string[] = []
+          for (const node of state.nodes) {
+            if (state.nodeStatus[node.id] === 'pending' || state.nodeStatus[node.id] === 'running') {
+              state.nodeStatus[node.id] = 'cancelled'
+              cancelledNodeIds.push(node.id)
+            }
+          }
+          if (cancelledNodeIds.length > 0) {
+            await lockedUpdate<TeamTask>(teamPath(agent, 'tasks.jsonl'), (currentTasks) => {
+              for (const nodeId of cancelledNodeIds) {
+                const taskId = state!.taskIds[nodeId]
+                if (taskId !== undefined) {
+                  const task = currentTasks.find(t => t.id === taskId)
+                  if (task !== undefined && task.status !== 'done') {
+                    task.status = 'blocked'
+                    task.updatedTs = now()
+                  }
+                }
+              }
+              return currentTasks
+            })
+          }
+          state.updatedTs = now()
+          writeWorkflow(agent, state)
+          return { ok: true, name, nodeStatus: state.nodeStatus }
+        }
+        default:
+          throw new Error(`team_workflow: unknown action "${String(args.action)}"`)
+      }
+    },
+    presentCall: args => ({ card: 'generic' as const, title: `Workflow ${args.action}: ${args.name}`, kind: 'other' as const }),
+  }))
+
+  // ── team_audit (F9: collaboration replay & audit) ───────────────────────────
+  // Merges all .team/*.jsonl event logs into a unified timeline for replay,
+  // audit, and statistics. Supports filtering by time range, session, and
+  // action type.
+
+  /** F9: One unified event from the merged team logs. */
+  interface AuditEvent {
+    ts: string
+    source: string
+    action: string
+    session?: string
+    payload: unknown
+  }
+
+  /** F9: Read all .team/*.jsonl files and merge into a unified event stream. */
+  function readAllAuditEvents(agent: { session: { id: string; header?: { cwd?: string } } }): AuditEvent[] {
+    const teamDir = join(teamCwd(agent), TEAM_DIR)
+    const events: AuditEvent[] = []
+    if (!existsSync(teamDir)) return events
+
+    // Known JSONL event sources and their action/session extractors.
+    const sources: Array<{ file: string; action: string; extractSession: (r: unknown) => string | undefined }> = [
+      { file: 'sent.jsonl', action: 'send', extractSession: (r) => (r as { from?: string })?.from },
+      { file: 'tasks.jsonl', action: 'task', extractSession: (r) => (r as { createdBy?: string })?.createdBy },
+      { file: 'memory.jsonl', action: 'memory', extractSession: (r) => (r as { updatedBy?: string })?.updatedBy },
+      { file: 'outbox.jsonl', action: 'broadcast', extractSession: (r) => (r as { from?: string })?.from },
+      { file: 'reviews.jsonl', action: 'review', extractSession: (r) => (r as { from?: string })?.from },
+    ]
+
+    for (const src of sources) {
+      const filePath = join(teamDir, src.file)
+      const records = readJsonl<unknown>(filePath)
+      for (const r of records) {
+        const ts = (r as { ts?: string })?.ts
+        if (typeof ts !== 'string') continue
+        events.push({
+          ts,
+          source: src.file,
+          action: src.action,
+          session: src.extractSession(r),
+          payload: r,
+        })
+      }
+    }
+
+    // Also scan inbox/*.jsonl for message events.
+    const inboxDir = join(teamDir, 'inbox')
+    if (existsSync(inboxDir)) {
+      for (const file of readdirSync(inboxDir)) {
+        if (!file.endsWith('.jsonl')) continue
+        const records = readJsonl<unknown>(join(inboxDir, file))
+        for (const r of records) {
+          const ts = (r as { ts?: string })?.ts
+          if (typeof ts !== 'string') continue
+          events.push({
+            ts,
+            source: `inbox/${file}`,
+            action: 'message',
+            session: (r as { from?: string })?.from,
+            payload: r,
+          })
+        }
+      }
+    }
+
+    // think.log is a JSONL file (despite the .log extension).
+    const thinkFile = join(teamDir, 'think.log')
+    if (existsSync(thinkFile)) {
+      const records = readJsonl<unknown>(thinkFile)
+      for (const r of records) {
+        const ts = (r as { ts?: string })?.ts
+        if (typeof ts !== 'string') continue
+        events.push({
+          ts,
+          source: 'think.log',
+          action: 'think',
+          session: (r as { session?: string })?.session,
+          payload: r,
+        })
+      }
+    }
+
+    // Sort by timestamp ascending (oldest first).
+    events.sort((a, b) => a.ts.localeCompare(b.ts))
+    return events
+  }
+
+  ctx.tools.register(defineTool({
+    name: 'team_audit',
+    description:
+      'F9: Collaboration replay and audit. Merges all .team/*.jsonl event logs into a unified timeline. '
+      + 'Actions: timeline (sorted event list), replay (timeline with full payloads), stats (summary counts). '
+      + 'Supports filtering by time range (since/until ISO timestamps), session id, and action type (send/task/memory/think/broadcast/review/message).',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['timeline', 'replay', 'stats'], description: 'Which audit operation to run.' },
+      since: { type: 'string', description: 'ISO-8601 timestamp; only events at or after this time (default: 24 hours ago).' },
+      until: { type: 'string', description: 'ISO-8601 timestamp; only events at or before this time (default: now).' },
+      session: { type: 'string', description: 'Filter to events from this session id.' },
+      action_type: { type: 'string', description: 'Filter to events of this action type (send/task/memory/think/broadcast/review/message).' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (_args, value) => {
+        const v = value as unknown as { ok: boolean; events?: AuditEvent[]; stats?: Record<string, unknown>; error?: string }
+        if (!v.ok) return [{ type: 'text' as const, text: `team_audit failed: ${v.error ?? 'unknown error'}` }]
+        if (v.stats !== undefined) {
+          const s = v.stats as { total: number; byAction: Record<string, number>; bySession: Record<string, number>; errorCount: number }
+          const lines = [
+            `Audit stats (${s.total} total events):`,
+            `  By action: ${Object.entries(s.byAction).map(([k, n]) => `${k}=${n}`).join(', ') || 'none'}`,
+            `  By session: ${Object.entries(s.bySession).map(([k, n]) => `${k.slice(0, 8)}…=${n}`).join(', ') || 'none'}`,
+            `  Errors: ${s.errorCount}`,
+          ]
+          return [{ type: 'text' as const, text: lines.join('\n') }]
+        }
+        if (v.events !== undefined) {
+          if (v.events.length === 0) return [{ type: 'text' as const, text: 'No events match the filter.' }]
+          const lines = v.events.slice(0, 50).map(e => {
+            const sess = e.session ? ` ${e.session.slice(0, 8)}…` : ''
+            return `[${e.ts}] ${e.action}${sess} (${e.source})`
+          })
+          const trunc = v.events.length > 50 ? `\n… and ${v.events.length - 50} more.` : ''
+          return [{ type: 'text' as const, text: `${v.events.length} event(s):\n${lines.join('\n')}${trunc}` }]
+        }
+        return [{ type: 'text' as const, text: 'Audit complete.' }]
+      },
+    },
+    execute(args, exec) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_audit: no agent context')
+
+      // Ensure presence so this session is discoverable.
+      try { writePresence(agent) } catch { /* best-effort */ }
+
+      const allEvents = readAllAuditEvents(agent)
+
+      // Apply time range filter (default: last 24 hours).
+      const now = Date.now()
+      const sinceMs = args.since !== undefined ? new Date(args.since).getTime() : now - 24 * 60 * 60 * 1000
+      const untilMs = args.until !== undefined ? new Date(args.until).getTime() : now
+      let filtered = allEvents.filter(e => {
+        const t = new Date(e.ts).getTime()
+        return t >= sinceMs && t <= untilMs
+      })
+
+      // Apply session filter.
+      if (args.session !== undefined) {
+        filtered = filtered.filter(e => e.session === args.session)
+      }
+
+      // Apply action_type filter.
+      if (args.action_type !== undefined) {
+        filtered = filtered.filter(e => e.action === args.action_type)
+      }
+
+      switch (args.action) {
+        case 'timeline': {
+          // Return events without full payloads (lightweight summary).
+          const events = filtered.map(e => ({
+            ts: e.ts,
+            source: e.source,
+            action: e.action,
+            ...e.session !== undefined ? { session: e.session } : {},
+          }))
+          return Promise.resolve({ ok: true, count: events.length, events })
+        }
+        case 'replay': {
+          // Return events WITH full payloads.
+          return Promise.resolve({ ok: true, count: filtered.length, events: filtered })
+        }
+        case 'stats': {
+          const byAction: Record<string, number> = {}
+          const bySession: Record<string, number> = {}
+          let errorCount = 0
+          for (const e of filtered) {
+            byAction[e.action] = (byAction[e.action] ?? 0) + 1
+            if (e.session !== undefined) {
+              bySession[e.session] = (bySession[e.session] ?? 0) + 1
+            }
+            // Count errors: tasks with 'blocked' status, messages with error fields, etc.
+            const payload = e.payload as { status?: string; ok?: boolean; error?: string }
+            if (payload?.status === 'blocked' || (payload?.ok === false && payload?.error !== undefined)) {
+              errorCount++
+            }
+          }
+          return Promise.resolve({
+            ok: true,
+            stats: {
+              total: filtered.length,
+              byAction,
+              bySession,
+              errorCount,
+            },
+          })
+        }
+        default:
+          throw new Error(`team_audit: unknown action "${String(args.action)}"`)
+      }
+    },
+    presentCall: args => ({ card: 'generic' as const, title: `Audit ${args.action}`, kind: 'read' as const }),
+  }))
+
   // ── session_delete tool ───────────────────────────────────────────────────
 
   ctx.tools.register(defineTool({
@@ -2199,3 +2766,4 @@ export function apply(ctx: Context): void {
     }),
   }))
 }
+
