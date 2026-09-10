@@ -53,8 +53,6 @@ const SKIP_DIRS = new Set([
 /** Maximum file size to index (256 KB). */
 const MAX_FILE_SIZE = 256 * 1024
 
-/** Maximum snippet lines to return per hit. */
-const SNIPPET_LINES = 12
 
 /** Default number of results. */
 const DEFAULT_TOP_K = 10
