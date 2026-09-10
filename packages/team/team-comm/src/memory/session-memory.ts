@@ -12,7 +12,7 @@
  *   const notes = await mem.search('performance rust')
  */
 
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs'
+import { mkdirSync, readFileSync, appendFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 const BM25_K1 = 1.2
@@ -54,7 +54,7 @@ export class SessionMemory {
     const lines = readFileSync(this.#filePath, 'utf-8').trim().split('\n').filter(Boolean)
     // search backwards for last match
     for (let i = lines.length - 1; i >= 0; i--) {
-      const entry = JSON.parse(lines[i]) as MemoryEntry
+      const entry = JSON.parse(lines[i]!) as MemoryEntry
       if (entry.key === key) return entry.value
     }
     return null
@@ -68,14 +68,14 @@ export class SessionMemory {
     const terms = query.toLowerCase().split(/\s+/)
     const entries = lines.map(l => JSON.parse(l) as MemoryEntry)
 
-    const scores = entries.map(entry => this.#bm25(query, entry, entries, terms))
+    const scores = entries.map(entry => this.#bm25(entry, entries, terms))
     const indexed = scores.map((s, i) => [s, i] as const).sort((a, b) => b[0] - a[0])
 
-    return indexed.slice(0, limit).map(([_, i]) => entries[i])
+    return indexed.slice(0, limit).map(([_, i]) => entries[i]!)
   }
 
   /** TF-IDF style BM25 scoring. */
-  #bm25(query: string, entry: MemoryEntry, allEntries: MemoryEntry[], terms: string[]): number {
+  #bm25(entry: MemoryEntry, allEntries: MemoryEntry[], terms: string[]): number {
     let score = 0
     for (const term of terms) {
       const tf = (entry.value.toLowerCase().match(new RegExp(term, 'gi')) ?? []).length
@@ -85,7 +85,7 @@ export class SessionMemory {
       const avgFieldLen = allEntries.reduce((s, e) => s + e.value.split(/\s+/).length, 0) / allEntries.length
       const fieldLen = entry.value.split(/\s+/).length
 
-      const normTerm = 1 / (tf / fieldLen + (1 - BM25_B) * (1 / fieldLen))
+
       // Simplified BM25 without full saturation constant
       score += tf * idf / (tf + BM25_K1 * (1 - BM25_B + BM25_B * fieldLen / avgFieldLen))
     }
@@ -95,5 +95,5 @@ export class SessionMemory {
 
 /** singleton factory cached per session for fast lookup */
 export function sessionMemory(sessionId: string, rootDir?: string): SessionMemory {
-  return new SessionMemory({ sessionId, rootDir })
+  return new SessionMemory(rootDir === undefined ? { sessionId } : { sessionId, rootDir })
 }
