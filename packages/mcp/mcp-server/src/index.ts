@@ -73,10 +73,10 @@ const DEFAULT_HOST = '127.0.0.1'
 
 /** Schema for the common tool filtering and caching options (M7 + M9). */
 const commonOptionsSchema = {
-  allowTools: z.array(z.string()).optional().description('Tool allow-list: only expose these tools over MCP'),
-  denyTools: z.array(z.string()).optional().description('Tool deny-list: do not expose these tools over MCP'),
-  cacheTtl: z.number().min(0).optional().description('TTL in ms for idempotent tool result cache (default 60000, 0 to disable)'),
-  cacheMax: z.number().step(1).min(1).optional().description('Maximum entries in the tool result cache (default 100)'),
+  allowTools: z.array(z.string()).description('Tool allow-list: only expose these tools over MCP'),
+  denyTools: z.array(z.string()).description('Tool deny-list: do not expose these tools over MCP'),
+  cacheTtl: z.number().min(0).description('TTL in ms for idempotent tool result cache (default 60000, 0 to disable)'),
+  cacheMax: z.number().step(1).min(1).description('Maximum entries in the tool result cache (default 100)'),
 }
 
 export const Config = z.union([
