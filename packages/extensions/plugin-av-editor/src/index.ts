@@ -226,7 +226,7 @@ export function apply(ctx: Context): void {
       files.forEach((f: any) => assertFile(f))
 
       // Write file list for ffmpeg concat demuxer
-      const listContent = files.map(f => `file '${resolve(f).replace(/'/g, "'\\''")}'`).join('\n')
+      const listContent = files.map((f: string) => `file '${resolve(f).replace(/'/g, "'\\''")}'`).join('\n')
       const listPath = resolve(args.output + '.filelist.txt')
       const { writeFileSync } = await import('node:fs')
       writeFileSync(listPath, listContent)
