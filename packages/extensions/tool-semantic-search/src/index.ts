@@ -1,11 +1,11 @@
 /**
  * Semantic code search tool: TF-IDF + cosine similarity based search that
- *瓒呰秺姝ｅ垯鍖归厤, finding code by meaning rather than exact text.
+ *超越正则匹配, finding code by meaning rather than exact text.
  *
  * The `semantic_search` tool builds a TF-IDF index over code files in the
  * workspace and returns the most relevant snippets for a natural-language
  * query. It tokenises source code by splitting on non-alphanumeric boundaries
- * (keeping camelCase / snake_case sub-tokens), computes term frequency鈥搃nverse
+ * (keeping camelCase / snake_case sub-tokens), computes term frequency–inverse
  * document frequency vectors, and ranks documents by cosine similarity to the
  * query vector. No external embedding model is required.
  *
@@ -32,7 +32,7 @@ interface SearchHit {
   endLine: number
   /** The snippet content. */
   content: string
-  /** Cosine similarity score 0鈥?. */
+  /** Cosine similarity score 0–1. */
   score: number
 }
 
@@ -90,7 +90,7 @@ export function apply(ctx: Context): void {
       },
       threshold: {
         type: 'number',
-        description: 'Minimum similarity score 0鈥?. Default 0.3.',
+        description: 'Minimum similarity score 0–1. Default 0.3.',
       },
     },
     output: {
@@ -223,7 +223,7 @@ function buildCorpus(root: string, files: string[]): DocChunk[] {
         file: rel,
         startLine: i + 1,
         endLine: Math.min(i + CHUNK_SIZE, lines.length),
-        content: chunkContent.length > 800 ? chunkContent.slice(0, 800) + '\n鈥? : chunkContent,
+        content: chunkContent.length > 800 ? chunkContent.slice(0, 800) + '\n...' : chunkContent,
         tokens,
       })
     }
