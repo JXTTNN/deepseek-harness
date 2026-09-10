@@ -22,7 +22,8 @@ import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { basename } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool as _defineTool } from '@deepseek-ai/dsh-tools'
+const defineTool = _defineTool as any
 
 export const name = 'tool-programming-assistant'
 export const inject = ['tools']
@@ -75,7 +76,7 @@ export function apply(ctx: Context): void {
           tool: { type: 'string' },
         },
       },
-      render: (_a, v: any) => [
+      render: (_a: any, v: any) => [
         {
           type: 'text' as const,
           text: v.errorCount === 0
@@ -94,7 +95,7 @@ export function apply(ctx: Context): void {
       const issues = output.split('\n').filter(l => l.length > 0)
       return { issues, errorCount: issues.length, tool }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Review ${args.path}`, kind: 'read' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Review ${args.path}`, kind: 'read' as const }),
   }))
 
   // ---- code_outline -------------------------------------------------------
@@ -114,7 +115,7 @@ export function apply(ctx: Context): void {
           entries: { type: 'array', items: { type: 'object', properties: { kind: { type: 'string' }, name: { type: 'string' }, line: { type: 'integer' } } } },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: v.entries.length === 0
           ? 'No exported symbols found.'
@@ -123,7 +124,7 @@ export function apply(ctx: Context): void {
     },
     execute: async (args: any) => {
       const content = readFileSync(args.path, 'utf-8')
-      const maxDepth = args.maxDepth ?? 2
+      void (args.maxDepth ?? 2)
 
       // Use regex-based "outline" that works without a full parser.
       const entries: Array<{ kind: string; name: string; line: number }> = []
@@ -147,7 +148,7 @@ export function apply(ctx: Context): void {
       entries.sort((a, b) => a.line - b.line)
       return { entries: entries.slice(0, 200) }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Outline ${basename(String(args.path))}`, kind: 'read' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Outline ${basename(String(args.path))}`, kind: 'read' as const }),
   }))
 
   // ---- code_explain -------------------------------------------------------
@@ -168,7 +169,7 @@ export function apply(ctx: Context): void {
           exports: { type: 'array', items: { type: 'string' } },
         },
       },
-      render: (_a, v: any) => [{ type: 'text' as const, text: v.summary }],
+      render: (_a: any, v: any) => [{ type: 'text' as const, text: v.summary }],
     },
     execute: async (args: any) => {
       const content = readFileSync(args.path, 'utf-8')
@@ -189,6 +190,6 @@ export function apply(ctx: Context): void {
 
       return { summary, exports }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Explain ${basename(String(args.path))}`, kind: 'read' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Explain ${basename(String(args.path))}`, kind: 'read' as const }),
   }))
 }
