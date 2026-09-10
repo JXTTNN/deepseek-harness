@@ -1,6 +1,8 @@
 name: Fix Lockfile v2
 on:
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   fix-lockfile:
     runs-on: ubuntu-latest
