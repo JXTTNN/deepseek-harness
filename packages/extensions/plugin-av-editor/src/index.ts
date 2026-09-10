@@ -99,7 +99,7 @@ export function apply(ctx: Context): void {
           raw: { type: 'object' },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: [
           `Format: ${v.format}`,
@@ -130,7 +130,7 @@ export function apply(ctx: Context): void {
         raw: info,
       }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Info: ${basename(String(args.file))}`, kind: 'read' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Info: ${basename(String(args.file))}`, kind: 'read' as const }),
   }))
 
   // ---- av_trim -------------------------------------------------------------
@@ -157,7 +157,7 @@ export function apply(ctx: Context): void {
           trimmedTo: { type: 'string' },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: v.ok
           ? `✅ Trimmed ${v.trimmedFrom} → ${v.trimmedTo}\nOutput: ${v.output}`
@@ -188,7 +188,7 @@ export function apply(ctx: Context): void {
         ...(ok ? {} : { error: result }),
       }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Trim: ${basename(String(args.file))}`, kind: 'write' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Trim: ${basename(String(args.file))}`, kind: 'write' as const }),
   }))
 
   // ---- av_merge ------------------------------------------------------------
@@ -211,7 +211,7 @@ export function apply(ctx: Context): void {
           output: { type: 'string' },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: v.ok
           ? `✅ Merged ${v.fileCount} files → ${v.output}`
@@ -223,7 +223,7 @@ export function apply(ctx: Context): void {
       if (files.length < 2) throw new Error('Need at least 2 files to merge')
       if (files.length > 50) throw new Error('Maximum 50 files per merge')
 
-      files.forEach(f => assertFile(f))
+      files.forEach((f: any) => assertFile(f))
 
       // Write file list for ffmpeg concat demuxer
       const listContent = files.map(f => `file '${resolve(f).replace(/'/g, "'\\''")}'`).join('\n')
@@ -239,7 +239,7 @@ export function apply(ctx: Context): void {
 
       return { ok, fileCount: files.length, output: args.output, ...(ok ? {} : { error: result }) }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Merge ${args.files.split(',').length} files`, kind: 'write' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Merge ${args.files.split(',').length} files`, kind: 'write' as const }),
   }))
 
   // ---- av_transcode --------------------------------------------------------
@@ -267,7 +267,7 @@ export function apply(ctx: Context): void {
           audioCodec: { type: 'string' },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: v.ok
           ? `✅ Transcoded: ${v.videoCodec}+${v.audioCodec}\n${v.output}`
@@ -299,7 +299,7 @@ export function apply(ctx: Context): void {
         ...(ok ? {} : { error: result }),
       }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Transcode: ${basename(String(args.file))}`, kind: 'write' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Transcode: ${basename(String(args.file))}`, kind: 'write' as const }),
   }))
 
   // ---- av_extract_audio ----------------------------------------------------
@@ -323,7 +323,7 @@ export function apply(ctx: Context): void {
           format: { type: 'string' },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: v.ok
           ? `✅ Extracted ${v.format} audio → ${v.output}`
@@ -345,7 +345,7 @@ export function apply(ctx: Context): void {
       const ok = existsSync(args.output)
       return { ok, input: file, output: args.output, format: fmt, ...(ok ? {} : { error: result }) }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Extract audio: ${basename(String(args.file))}`, kind: 'write' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Extract audio: ${basename(String(args.file))}`, kind: 'write' as const }),
   }))
 
   // ---- av_extract_frames ---------------------------------------------------
@@ -370,7 +370,7 @@ export function apply(ctx: Context): void {
           outputDir: { type: 'string' },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: v.ok
           ? `✅ Extracted ${v.frameCount} frames → ${v.outputDir}`
@@ -392,7 +392,7 @@ export function apply(ctx: Context): void {
 
       return { ok: frameCount > 0, frameCount, outputDir: args.outputDir, ...(frameCount === 0 ? { error: result } : {}) }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Frames: ${basename(String(args.file))}`, kind: 'write' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Frames: ${basename(String(args.file))}`, kind: 'write' as const }),
   }))
 
   // ---- av_speed ------------------------------------------------------------
@@ -416,7 +416,7 @@ export function apply(ctx: Context): void {
           output: { type: 'string' },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: v.ok
           ? `✅ Speed ×${v.factor} → ${v.output}`
@@ -436,7 +436,7 @@ export function apply(ctx: Context): void {
       const ok = existsSync(args.output)
       return { ok, factor, output: args.output, ...(ok ? {} : { error: result }) }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Speed ×${args.factor}: ${basename(String(args.file))}`, kind: 'write' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Speed ×${args.factor}: ${basename(String(args.file))}`, kind: 'write' as const }),
   }))
 
   // ---- av_volume -----------------------------------------------------------
@@ -459,7 +459,7 @@ export function apply(ctx: Context): void {
           output: { type: 'string' },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: v.ok
           ? `✅ Volume ${v.volume} → ${v.output}`
@@ -475,7 +475,7 @@ export function apply(ctx: Context): void {
       const ok = existsSync(args.output)
       return { ok, volume: vol, output: args.output, ...(ok ? {} : { error: result }) }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Volume ${args.volume}: ${basename(String(args.file))}`, kind: 'write' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Volume ${args.volume}: ${basename(String(args.file))}`, kind: 'write' as const }),
   }))
 
   // ---- av_to_gif -----------------------------------------------------------
@@ -501,7 +501,7 @@ export function apply(ctx: Context): void {
           sizeBytes: { type: 'integer' },
         },
       },
-      render: (_a, v: any) => [{
+      render: (_a: any, v: any) => [{
         type: 'text' as const,
         text: v.ok
           ? `✅ GIF created: ${(v.sizeBytes / 1024).toFixed(0)} KB → ${v.output}`
@@ -528,6 +528,6 @@ export function apply(ctx: Context): void {
       const sizeBytes = ok ? statSync(args.output).size : 0
       return { ok, output: args.output, sizeBytes, ...(ok ? {} : { error: result }) }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `GIF: ${basename(String(args.file))}`, kind: 'write' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `GIF: ${basename(String(args.file))}`, kind: 'write' as const }),
   }))
 }
