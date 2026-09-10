@@ -147,7 +147,7 @@ describe('Team Mode E2E Tests', () => {
         join(TEST_WORKSPACE, '.team/memory/entries.jsonl'), 'utf-8'
       ).trim().split('\n').filter(Boolean)
 
-      const searchResults = entries.filter(e =>
+      const searchResults = entries.filter((e: string) =>
         e.includes('Three.js') || e.includes('rendering')
       )
 
@@ -190,7 +190,7 @@ describe('Team Mode E2E Tests', () => {
       const logPath = join(memDir, 'empty-agent.jsonl')
       if (!existsSync(logPath)) return // no entries → search returns null
       const lines = require('fs').readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean)
-      const matched = lines.filter(l => {
+      const matched = lines.filter((l: string) => {
         const e = JSON.parse(l)
         return e.key === 'nonexistent_key'
       })
