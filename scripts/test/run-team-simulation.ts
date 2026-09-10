@@ -4,9 +4,9 @@
  * Usage: npx tsx scripts/test/run-team-simulation.ts [--config=path] [--workspace=path]
  */
 
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, appendFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, appendFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+
 
 // ---------- CLI Args ----------
 const args = process.argv.slice(2)
@@ -44,7 +44,7 @@ function writeJsonl(filePath: string, data: any) {
 
 function readJsonlAll(filePath: string): any[] {
   if (!existsSync(filePath)) return []
-  return readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean).map(JSON.parse)
+  return readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean).map((l: string) => JSON.parse(l))
 }
 
 // ---------- Scenarios ----------
