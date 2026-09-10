@@ -2754,7 +2754,7 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: `Role "${v.role ?? ''}" leader: ${v.leader?.slice(0, 8) ?? 'none'}...${me} (lease expires ${v.leaseExpires ?? 'n/a'})` }]
       },
     },
-    execute(args, exec) {
+    async execute(args, exec) {
       const agent = exec.agent
       if (!agent) throw new Error('team_elect: no agent context')
       try { writePresence(agent) } catch { /* best-effort */ }
@@ -2791,14 +2791,14 @@ export function apply(ctx: Context): void {
             const role = args.role
             if (!isSafeTeamId(role)) throw new Error('team_elect status: invalid role')
             const existing = readElection(agent, role)
-            if (existing === undefined) return Promise.resolve({ ok: true, role, leader: '', isLeader: false, leaseExpires: '' })
+            if (existing === undefined) return { ok: true, role, leader: '', isLeader: false, leaseExpires: '' }
             const nowMs = Date.now()
             const leaseValid = nowMs < new Date(existing.leaseExpires).getTime()
             const result: { ok: boolean; role: string; leader: string; isLeader: boolean; leaseExpires: string; leaseExpired?: boolean } = {
               ok: true, role, leader: existing.leader, isLeader: existing.leader === agent.session.id, leaseExpires: existing.leaseExpires,
             }
             if (!leaseValid) result.leaseExpired = true
-            return Promise.resolve(result)
+            return result
           }
           // List all elections.
           const dir = join(teamCwd(agent), TEAM_DIR, 'election')
@@ -2812,7 +2812,7 @@ export function apply(ctx: Context): void {
               } catch { /* skip corrupted */ }
             }
           }
-          return Promise.resolve({ ok: true, elections })
+          return { ok: true, elections }
         }
         case 'yield': {
           const role = args.role
@@ -2947,7 +2947,7 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: 'Role operation completed.' }]
       },
     },
-    execute(args, exec) {
+    async execute(args, exec) {
       const agent = exec.agent
       if (!agent) throw new Error('team_role: no agent context')
       try { writePresence(agent) } catch { /* best-effort */ }
@@ -2993,7 +2993,7 @@ export function apply(ctx: Context): void {
           }
           // Include assignments alongside roles.
           const assignments = readRoleAssignments(agent)
-          return Promise.resolve({ ok: true, roles, assignments })
+          return { ok: true, roles, assignments }
         }
         case 'assign': {
           const name = args.name
@@ -3303,7 +3303,7 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: 'Agent spec operation completed.' }]
       },
     },
-    execute(args, exec) {
+    async execute(args, exec) {
       const agent = exec.agent
       if (!agent) throw new Error('team_agent_define: no agent context')
       try { writePresence(agent) } catch { /* best-effort */ }
@@ -3317,13 +3317,14 @@ export function apply(ctx: Context): void {
           if (specArg === undefined || typeof specArg.description !== 'string' || specArg.description.length === 0) {
             throw new Error('team_agent_define create: spec.description is required')
           }
+          const description: string = specArg.description
           const agentFile = join(teamCwd(agent), TEAM_DIR, 'agents', `${name}.json`)
           return withFileLock(agentFile, () => {
             if (existsSync(agentFile)) throw new Error(`team_agent_define create: agent "${name}" already exists (use update)`)
             const now = new Date().toISOString()
             const spec: AgentSpec = {
               name,
-              description: specArg.description,
+              description,
               createdAt: now,
               updatedAt: now,
             }
@@ -3331,9 +3332,9 @@ export function apply(ctx: Context): void {
             if (Array.isArray(specArg.tools)) spec.tools = specArg.tools as string[]
             if (Array.isArray(specArg.disallowedTools)) spec.disallowedTools = specArg.disallowedTools as string[]
             if (typeof specArg.maxTurns === 'number') spec.maxTurns = specArg.maxTurns
-            if (typeof specArg.permissionMode === 'string') spec.permissionMode = specArg.permissionMode as AgentSpec['permissionMode']
+            if (typeof specArg.permissionMode === 'string') spec.permissionMode = specArg.permissionMode as 'read_only' | 'accept_edits' | 'auto' | 'plan'
             if (typeof specArg.systemPrompt === 'string') spec.systemPrompt = specArg.systemPrompt
-            if (typeof specArg.isolation === 'string') spec.isolation = specArg.isolation as AgentSpec['isolation']
+            if (typeof specArg.isolation === 'string') spec.isolation = specArg.isolation as 'worktree' | 'docker' | 'none'
             if (Array.isArray(specArg.mcpServers)) spec.mcpServers = specArg.mcpServers as string[]
             writeAgentSpec(agent, spec)
             return { ok: true, spec }
@@ -3360,9 +3361,9 @@ export function apply(ctx: Context): void {
               if (Array.isArray(specArg.tools)) spec.tools = specArg.tools as string[]
               if (Array.isArray(specArg.disallowedTools)) spec.disallowedTools = specArg.disallowedTools as string[]
               if (typeof specArg.maxTurns === 'number') spec.maxTurns = specArg.maxTurns
-              if (typeof specArg.permissionMode === 'string') spec.permissionMode = specArg.permissionMode as AgentSpec['permissionMode']
+              if (typeof specArg.permissionMode === 'string') spec.permissionMode = specArg.permissionMode as 'read_only' | 'accept_edits' | 'auto' | 'plan'
               if (typeof specArg.systemPrompt === 'string') spec.systemPrompt = specArg.systemPrompt
-              if (typeof specArg.isolation === 'string') spec.isolation = specArg.isolation as AgentSpec['isolation']
+              if (typeof specArg.isolation === 'string') spec.isolation = specArg.isolation as 'worktree' | 'docker' | 'none'
               if (Array.isArray(specArg.mcpServers)) spec.mcpServers = specArg.mcpServers as string[]
             }
             writeAgentSpec(agent, spec)
@@ -3392,14 +3393,14 @@ export function apply(ctx: Context): void {
               } catch { /* skip corrupted */ }
             }
           }
-          return Promise.resolve({ ok: true, specs })
+          return { ok: true, specs }
         }
         case 'get': {
           const name = args.name
           if (typeof name !== 'string' || name.length === 0) throw new Error('team_agent_define get: name is required')
           const spec = readAgentSpec(agent, name)
-          if (spec === undefined) return Promise.resolve({ ok: false, error: `agent "${name}" not found` })
-          return Promise.resolve({ ok: true, spec })
+          if (spec === undefined) return { ok: false, error: `agent "${name}" not found` }
+          return { ok: true, spec }
         }
         default:
           throw new Error(`team_agent_define: unknown action "${String(args.action)}"`)
