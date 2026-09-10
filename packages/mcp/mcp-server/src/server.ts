@@ -34,7 +34,7 @@ import {
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
+
 import { createTransport } from './transport.ts'
 import type { Config } from './index.ts'
 
@@ -350,7 +350,8 @@ function registerPromptHandlers(ctx: Context, server: Server): void {
     const skills = ctx.get('skills')
     if (skills !== undefined) {
       try {
-        for (const skill of skills.list()) {
+        const skillList = await (skills as { list(): Promise<Array<{ name: string; description: string; invocation: { modelInvocable: boolean } }> | Array<{ name: string; description: string; invocation: { modelInvocable: boolean } ?>> }).list()
+        for (const skill of skillList) {
           if (skill.invocation.modelInvocable) {
             prompts.push({
               name: `skill:${skill.name}`,
@@ -426,11 +427,12 @@ async function getSkillPrompt(
     throw new McpError(ErrorCode.MethodNotFound, 'skills service is not available')
   }
   try {
-    const summary = skills.list().find(s => s.name === skillName)
+    const skillList = await (skills as { list(): Promise<Array<{ name: string; description: string; invocation: { modelInvocable: boolean } }> | Array<{ name: string; description: string; invocation: { modelInvocable: boolean } ?>> }).list()
+    const summary = skillList.find(s => s.name === skillName)
     if (summary === undefined) {
       throw new McpError(ErrorCode.InvalidParams, `unknown skill "${skillName}"`)
     }
-    const body = await skills.load(skillName, { signal })
+    const body = await (skills as { load(name: string, opts: { signal: AbortSignal }): Promise<unknown> }).load(skillName, { signal })
     const text = typeof body === 'string' ? body : JSON.stringify(body)
     return {
       messages: [{
