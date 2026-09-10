@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Cross-session team communication tools for the Team mode preset.
  *
  * Team-mode sessions share a `.team/` directory under the workspace. Each
@@ -44,7 +44,7 @@ const FILE_LOCK_STALE_MS = 10_000
 const MAX_INBOX_MESSAGES = 500
 
 /** Suppress a send only when an identical (sender, message) landed within this
- *  window 鈥?an accidental double-send 鈥?never a legitimate later repeat. */
+ *  window — an accidental double-send — never a legitimate later repeat. */
 const DEDUP_WINDOW_MS = 5000
 
 /** Append-only ledgers (tasks, sent, outbox, reviews, memory) are trimmed to
@@ -172,7 +172,7 @@ function lockedAppend(file: string, record: unknown): Promise<void> {
   return withFileLock(file, () => {
     writeFileSync(file, JSON.stringify(record) + '\n', { flag: 'a' })
     // Amortised bound: only when the ledger is already large, rewrite it to its
-    // tail. Best-effort 鈥?a trim failure must never fail the append itself.
+    // tail. Best-effort — a trim failure must never fail the append itself.
     try {
       if (statSync(file).size > MAX_APPEND_FILE_BYTES) {
         const records = readJsonlStrict<unknown>(file)
@@ -328,7 +328,7 @@ type TeamMemoryEntry = {
   version?: number
 }
 
-// 鈹€鈹€ team_memory search scoring (BM25-lite, fully offline) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ── team_memory search scoring (BM25-lite, fully offline) ────────────────
 // Classical IR ranking: term frequency saturating with k1, inverse document
 // frequency over the memory's own keys, and a doc-length normalization so the
 // model can rank recall hits on a shared memory of any size. Pure functions,
@@ -458,7 +458,7 @@ function normalizeGlob(glob: string): string {
 
 /** Naive writeSet overlap: two globs conflict when they are exactly equal or
  *  one is a directory prefix of the other (single most effective conflict
- *  avoidance rule 鈥?file-ownership partitioning; overlapping ownership is a bug). */
+ *  avoidance rule — file-ownership partitioning; overlapping ownership is a bug). */
 function writeSetsOverlap(a: string, b: string): boolean {
   const na = normalizeGlob(a)
   const nb = normalizeGlob(b)
@@ -466,14 +466,14 @@ function writeSetsOverlap(a: string, b: string): boolean {
 }
 
 /** Read a JSONL file, returning an array of parsed objects. A whole-file read
- *  error returns `[]` 鈥?suitable only for READ-ONLY consumers where an empty
+ *  error returns `[]` — suitable only for READ-ONLY consumers where an empty
  *  result is acceptable. Read-modify-write paths must use `readJsonlStrict`. */
 function readJsonl<T>(path: string): T[] {
   if (!existsSync(path)) return []
   try {
     return parseJsonl<T>(readFileSync(path, 'utf-8'))
   } catch {
-    // File read error (permission, transient AV lock, etc.) 鈥?return empty.
+    // File read error (permission, transient AV lock, etc.) — return empty.
     return []
   }
 }
@@ -489,7 +489,8 @@ function readJsonlStrict<T>(path: string): T[] {
   return parseJsonl<T>(readFileSync(path, 'utf-8'))
 }
 
-/** Parse only the last `n` records of a JSONL file without parsing the bulk 鈥? *  used for the cheap dedup window and reply lookups on a long inbox. */
+/** Parse only the last `n` records of a JSONL file without parsing the bulk —
+ *  used for the cheap dedup window and reply lookups on a long inbox. */
 function readTailJsonl<T>(path: string, n: number): T[] {
   if (!existsSync(path) || n <= 0) return []
   try {
@@ -514,7 +515,7 @@ function parseJsonl<T>(raw: string): T[] {
     try {
       result.push(JSON.parse(line) as T)
     } catch {
-      // Skip malformed lines 鈥?don't lose the whole file over one bad line.
+      // Skip malformed lines — don't lose the whole file over one bad line.
     }
   }
   return result
@@ -535,7 +536,7 @@ function writeJsonl(path: string, records: unknown[]): void {
   try {
     const fd = openSync(tmp, 'r+')
     try { fsyncSync(fd) } finally { closeSync(fd) }
-  } catch { /* fsync unsupported/denied 鈥?rename still gives atomicity */ }
+  } catch { /* fsync unsupported/denied — rename still gives atomicity */ }
   // `renameSync` over an existing destination is atomic on POSIX, but Windows
   // can surface transient EPERM/EBUSY/EEXIST while a reader briefly holds the
   // file open. Retry a few times, then fall back to a direct write as a last
@@ -547,7 +548,7 @@ function writeJsonl(path: string, records: unknown[]): void {
       return
     } catch (err) {
       lastError = err
-      // If the temp file disappeared, another writer already renamed it 鈥?done.
+      // If the temp file disappeared, another writer already renamed it — done.
       if (!existsSync(tmp)) return
       // Busy-wait briefly; the Windows share lock is usually released in ms.
       const wait = 10 * (attempt + 1)
@@ -594,14 +595,14 @@ function readAllPresence(agent: { session: { header?: { cwd?: string } } }): Pre
       const raw = readFileSync(filePath, 'utf-8')
       const record = JSON.parse(raw) as PresenceRecord
       const age = now - new Date(record.ts).getTime()
-      // Stale, or carrying a corrupt/absent timestamp or unsafe id 鈥?remove it.
+      // Stale, or carrying a corrupt/absent timestamp or unsafe id — remove it.
       if (Number.isNaN(age) || age > PRESENCE_STALE_MS || typeof record.id !== 'string' || !isSafeTeamId(record.id)) {
         try { unlinkSync(filePath) } catch { /* best-effort */ }
         continue
       }
       records.push(record)
     } catch {
-      // Corrupted 鈥?remove it.
+      // Corrupted — remove it.
       try { unlinkSync(filePath) } catch { /* best-effort */ }
     }
   }
@@ -625,7 +626,7 @@ export function apply(ctx: Context): void {
     try { writePresence(ctx.agent) } catch { /* best-effort */ }
   }
 
-  // 鈹€鈹€ dynamic team state context (evaluated at every assembly) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── dynamic team state context (evaluated at every assembly) ──────────────
 
   ctx.systemPrompt.context({
     name: 'team:state',
@@ -635,13 +636,13 @@ export function apply(ctx: Context): void {
     },
   })
 
-  // 鈹€鈹€ mandatory protocol section (always visible) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── mandatory protocol section (always visible) ───────────────────────────
 
   ctx.systemPrompt.section({
     name: 'team:protocol',
     order: 1,
     text:
-      'TEAM COLLABORATION PROTOCOL (MANDATORY 鈥?VIOLATION MEANS MISSION FAILURE): '
+      'TEAM COLLABORATION PROTOCOL (MANDATORY — VIOLATION MEANS MISSION FAILURE): '
       + '(1) FIRST ACTION EVERY TURN: call team_inbox. Do not think, plan, or do anything else before calling team_inbox. '
       + '(2) If team_inbox returns messages, process EVERY message: read it, execute the task, verify the result, and reply IMMEDIATELY with team_send(target: sender_from, reply_to: msgId, message: your_result). '
       + '(3) Reply ONLY to the sender who messaged you. Do NOT broadcast to peers who did not message you. Only the coordinator delegates. '
@@ -649,8 +650,8 @@ export function apply(ctx: Context): void {
       + '(5) You are a TEAM MEMBER. You have peers who depend on you. If you ignore their messages, the team fails. '
       + '(6) MULTI-STEP WORKFLOW: When coordinating a task with multiple steps, after receiving a reply from one peer, IMMEDIATELY send the next step to the next peer. '
       + 'Do NOT wait for the user to prompt you. Continue the chain automatically. '
-      + 'Example: if you told 2鍙?to research, and 2鍙?replied, NOW send the result to 3鍙?without waiting. '
-      + '(7) When you receive a task, ACTUALLY do the work 鈥?write files, run commands, verify results. Reply with results, not intentions. '
+      + 'Example: if you told 2号 to research, and 2号 replied, NOW send the result to 3号 without waiting. '
+      + '(7) When you receive a task, ACTUALLY do the work — write files, run commands, verify results. Reply with results, not intentions. '
       + 'CRITICAL: team_send and team_inbox are the ONLY way to communicate with peers. '
       + 'When the user tells you to send a message or delegate a task to a peer, you MUST call team_send IMMEDIATELY. '
       + 'Do NOT reply with text like "I will send..." or "Let me tell...". Do NOT acknowledge. Do NOT describe. '
@@ -661,7 +662,7 @@ export function apply(ctx: Context): void {
       + '(10) A worker that finishes a team_task MUST call team_report with filesChanged and evidence, then mark the task done.',
   })
 
-  // 鈹€鈹€ team_send 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_send ──────────────────────────────────────────────────────────
 
   ctx.tools.register(defineTool({
     name: 'team_send',
@@ -706,7 +707,7 @@ export function apply(ctx: Context): void {
       },
       render: (_args, value) => {
         const v = value
-        if (v.duplicate) return [{ type: 'text' as const, text: `Duplicate suppressed 鈥?an identical message to ${v.to} was already sent recently.` }]
+        if (v.duplicate) return [{ type: 'text' as const, text: `Duplicate suppressed — an identical message to ${v.to} was already sent recently.` }]
         if (!v.ok) return [{ type: 'text' as const, text: `Failed to send to ${v.to}: ${v.error ?? 'unknown error'}` }]
         const extra = v.replyTo ? ` (reply to ${v.replyTo})` : ''
         const pri = v.priority && v.priority > 0 ? ` [priority ${v.priority}]` : ''
@@ -739,7 +740,7 @@ export function apply(ctx: Context): void {
       // Serialize the duplicate check + append so concurrent sends to the same
       // peer (or a peer's concurrent inbox read) cannot interleave and drop a message.
       return withFileLock(inboxFile, () => {
-        // Duplicate detection: skip only an accidental double-send 鈥?the same
+        // Duplicate detection: skip only an accidental double-send — the same
         // (sender, message) landing within DEDUP_WINDOW_MS. A later legitimate
         // repeat (e.g. a second "OK" for a different task) is delivered.
         const recent = readTailJsonl<TeamMessage>(inboxFile, 10)
@@ -843,7 +844,7 @@ export function apply(ctx: Context): void {
     },
   }))
 
-  // 鈹€鈹€ team_inbox 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_inbox ─────────────────────────────────────────────────────────
 
   ctx.tools.register(defineTool({
     name: 'team_inbox',
@@ -888,15 +889,15 @@ export function apply(ctx: Context): void {
           return [{ type: 'text' as const, text: v.new_count === 0 ? 'Inbox is empty. No new messages. Call team_send to report your progress to peers.' : `${v.new_count} new message(s), all read.` }]
         }
         const lines = v.messages.map((m: TeamMessage) => {
-          const reply = m.replyTo ? ` [reply to ${m.replyTo.slice(0, 8)}鈥` : ''
-          return `[${m.ts}] ${m.msgId.slice(0, 8)}鈥?from ${m.from}${reply}: ${m.message}`
+          const reply = m.replyTo ? ` [reply to ${m.replyTo.slice(0, 8)}…]` : ''
+          return `[${m.ts}] ${m.msgId.slice(0, 8)}… from ${m.from}${reply}: ${m.message}`
         })
         // Only demand replies for genuinely unread messages; an `all:true`
         // history read must not re-demand replies for already-read entries.
         if (v.new_count > 0) {
           lines.push('')
           lines.push('!!! REPLY REQUIRED: You MUST reply to EACH new message above using team_send(target: <from>, reply_to: <msgId>, message: <your response>).')
-          lines.push('If you need to research first, reply with a SHORT status like "Working on it, will report back" 鈥?then research. But you MUST call team_send NOW before doing anything else.')
+          lines.push('If you need to research first, reply with a SHORT status like "Working on it, will report back" — then research. But you MUST call team_send NOW before doing anything else.')
           lines.push('Do NOT just report to the user. Your teammates are WAITING. Call team_send NOW.')
         }
         return [{ type: 'text' as const, text: `${v.new_count} new message(s):\n${lines.join('\n')}` }]
@@ -950,7 +951,7 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // 鈹€鈹€ team_list 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_list ──────────────────────────────────────────────────────────
 
   ctx.tools.register(defineTool({
     name: 'team_list',
@@ -1029,17 +1030,17 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // 鈹€鈹€ think (deep reasoning 4-pass, persistent) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── think (deep reasoning 4-pass, persistent) ───────────────────────────
 
   ctx.tools.register(defineTool({
     name: 'think',
     description:
-      'MANDATORY deep reasoning tool. Your internal monologue is invisible to the team 鈥?only think() '
+      'MANDATORY deep reasoning tool. Your internal monologue is invisible to the team — only think() '
       + 'writes your reasoning to the shared team log so peers can read it. Call 4 times before acting: '
-      + 'PASS 1 (pass:1) 鈥?understand & decompose: restate the task, identify subtasks, dependencies, constraints, success criteria. '
-      + 'PASS 2 (pass:2) 鈥?explore & weigh: consider alternatives, edge cases, risks, trade-offs. '
-      + 'PASS 3 (pass:3) 鈥?decide & plan: choose the best approach and lay out the concrete execution plan in order. '
-      + 'PASS 4 (pass:4) 鈥?verify & self-check: re-check the plan for completeness, contradictions, and unresolved risks before acting. '
+      + 'PASS 1 (pass:1) — understand & decompose: restate the task, identify subtasks, dependencies, constraints, success criteria. '
+      + 'PASS 2 (pass:2) — explore & weigh: consider alternatives, edge cases, risks, trade-offs. '
+      + 'PASS 3 (pass:3) — decide & plan: choose the best approach and lay out the concrete execution plan in order. '
+      + 'PASS 4 (pass:4) — verify & self-check: re-check the plan for completeness, contradictions, and unresolved risks before acting. '
       + 'Each call appends to .team/think.log. Other sessions read your reasoning there.',
     parameters: {
       pass: { type: 'integer', required: true, description: 'Which pass: 1, 2, 3, or 4.' },
@@ -1111,12 +1112,12 @@ export function apply(ctx: Context): void {
     },
     presentCall: args => ({
       card: 'generic' as const,
-      title: `Deep think 鈥?pass ${args.pass}/4`,
+      title: `Deep think — pass ${args.pass}/4`,
       kind: 'other' as const,
     }),
   }))
 
-  // 鈹€鈹€ team_think_read 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_think_read ─────────────────────────────────────────────────────
 
   ctx.tools.register(defineTool({
     name: 'team_think_read',
@@ -1162,7 +1163,7 @@ export function apply(ctx: Context): void {
           return [{ type: 'text' as const, text: 'No thinking log entries found.' }]
         }
         const lines = v.entries.map(e =>
-          `[${e.ts}] ${e.session.slice(0, 8)}鈥?pass${e.pass}: ${e.thought.slice(0, 200)}${e.thought.length > 200 ? '鈥? : ''}`,
+          `[${e.ts}] ${e.session.slice(0, 8)}… pass${e.pass}: ${e.thought.slice(0, 200)}${e.thought.length > 200 ? '…' : ''}`,
         )
         return [{ type: 'text' as const, text: `${v.entries.length} of ${v.total} entries:\n${lines.join('\n')}` }]
       },
@@ -1205,7 +1206,7 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // 鈹€鈹€ team_broadcast + team_collect (fan-out / fan-in) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_broadcast + team_collect (fan-out / fan-in) ──────────────────────
   // Map-reduce parallelisation: one coordinator fans one task out to every
   // peer and later collects each answer. This is the wall-clock parallel
   // speedup a single conversation cannot provide.
@@ -1248,7 +1249,7 @@ export function apply(ctx: Context): void {
       render: (_args, value) => {
         const v = value as { broadcastId: string; sentTo: number; note?: string }
         if (v.note !== undefined) return [{ type: 'text' as const, text: v.note }]
-        return [{ type: 'text' as const, text: `Broadcast ${v.broadcastId.slice(0, 8)}鈥?sent to ${v.sentTo} peer(s). Collect replies with team_collect(broadcastId: "${v.broadcastId}").` }]
+        return [{ type: 'text' as const, text: `Broadcast ${v.broadcastId.slice(0, 8)}… sent to ${v.sentTo} peer(s). Collect replies with team_collect(broadcastId: "${v.broadcastId}").` }]
       },
     },
     async execute(args, exec) {
@@ -1256,7 +1257,7 @@ export function apply(ctx: Context): void {
       if (!agent) throw new Error('team_broadcast: no agent context')
       // Reject an oversized message up front (matching team_send's {ok:false}
       // style) instead of letting deliverMessage throw mid-loop after some
-      // peers already received it 鈥?a partial fan-out is worse than a refusal.
+      // peers already received it — a partial fan-out is worse than a refusal.
       const msgBytes = Buffer.byteLength(args.message, 'utf-8')
       if (msgBytes > MAX_MESSAGE_BYTES) {
         return { broadcastId: '', sentTo: 0, targets: [], note: `Message too large: ${msgBytes} bytes (max ${MAX_MESSAGE_BYTES})` }
@@ -1327,7 +1328,7 @@ export function apply(ctx: Context): void {
         const v = value as { total: number; replied: number; pending: string[]; replies: { from: string; message: string }[] }
         const lines = [
           `${v.replied} of ${v.total} replied.`,
-          ...v.replies.map(r => `  鈥?${r.from.slice(0, 8)}鈥? ${r.message.slice(0, 120)}`),
+          ...v.replies.map(r => `  • ${r.from.slice(0, 8)}…: ${r.message.slice(0, 120)}`),
           ...v.pending.length > 0 ? [`Pending: ${v.pending.join(', ')}`] : [],
         ]
         return [{ type: 'text' as const, text: lines.join('\n') }]
@@ -1362,7 +1363,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Collect broadcast replies', kind: 'read' as const }),
   }))
 
-  // 鈹€鈹€ team_task (shared durable task board) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_task (shared durable task board) ─────────────────────────────────
   // A visible division of labour with a state machine and dependencies. A
   // single conversation holds everything in one head; a team needs an external
   // board so every peer sees who owns what and what is blocked on what.
@@ -1372,7 +1373,7 @@ export function apply(ctx: Context): void {
     description:
       'Shared durable task board (.team/tasks.jsonl) for cross-session coordination. '
       + 'Actions: create (new todo), list (filter by status/assignee/priority), claim (atomically assign to self and start), '
-      + 'update (set status/result/description/assignee/deps/priority/deadline). States: todo 鈫?in_progress 鈫?done | blocked. '
+      + 'update (set status/result/description/assignee/deps/priority/deadline). States: todo → in_progress → done | blocked. '
       + 'Creating a task with an assignee auto-notifies that assignee; claiming or completing a task auto-notifies its creator. '
       + 'Use this so every peer sees who owns what and what each task is waiting on.',
     parameters: {
@@ -1386,7 +1387,7 @@ export function apply(ctx: Context): void {
       priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'], description: 'Priority (create/update). Defaults to normal.' },
       deadline: { type: 'string', description: 'ISO-8601 deadline (create/update).' },
       result: { type: 'string', description: 'Result or final answer (update).' },
-      writeSet: { type: 'array', items: { type: 'string' }, description: 'Workspace-relative globs the assignee EXCLUSIVELY owns (create). Everything outside is read-only for this task. Overlapping an open task writeSet returns a warning 鈥?overlapping ownership is a bug.' },
+      writeSet: { type: 'array', items: { type: 'string' }, description: 'Workspace-relative globs the assignee EXCLUSIVELY owns (create). Everything outside is read-only for this task. Overlapping an open task writeSet returns a warning — overlapping ownership is a bug.' },
       acceptance: { type: 'string', description: 'Machine/human-checkable done criteria, e.g. "build passes AND report filed" (create).' },
     },
     output: {
@@ -1400,10 +1401,10 @@ export function apply(ctx: Context): void {
           const p = t.priority && t.priority !== 'normal' ? ` !${t.priority}` : ''
           const dl = t.deadline ? ` due:${t.deadline}` : ''
           const d = t.deps && t.deps.length > 0 ? ` deps:[${t.deps.map(x => x.slice(0, 8)).join(',')}]` : ''
-          const r = t.result ? ` 鈬?${t.result.slice(0, 80)}` : ''
+          const r = t.result ? ` ⇒ ${t.result.slice(0, 80)}` : ''
           const ws = t.writeSet && t.writeSet.length > 0 ? ` owns:[${t.writeSet.join(',')}]` : ''
-          const acc = t.acceptance ? ` 鉁?{t.acceptance.slice(0, 80)}` : ''
-          return `  鈥?[${t.status}]${p} ${t.id.slice(0, 8)}鈥?${t.title} (${a})${dl}${d}${r}${ws}${acc}`
+          const acc = t.acceptance ? ` ✓${t.acceptance.slice(0, 80)}` : ''
+          return `  • [${t.status}]${p} ${t.id.slice(0, 8)}… ${t.title} (${a})${dl}${d}${r}${ws}${acc}`
         })
         return [{ type: 'text' as const, text: lines.join('\n') }]
       },
@@ -1430,7 +1431,7 @@ export function apply(ctx: Context): void {
             : undefined
           // Advisory overlap warning: an advisory pre-append read can miss a task
           // created in the same instant, but overlap is a coordination WARNING,
-          // not an enforced invariant 鈥?the board itself stays correct.
+          // not an enforced invariant — the board itself stays correct.
           const overlaps: string[] = []
           if (writeSet !== undefined) {
             const open = readJsonl<TeamTask>(file)
@@ -1439,7 +1440,7 @@ export function apply(ctx: Context): void {
               for (const g of writeSet) {
                 for (const og of other.writeSet as string[]) {
                   if (writeSetsOverlap(g, og)) {
-                    overlaps.push(`"${g}" overlaps "${og}" on open task ${other.id.slice(0, 8)}鈥?"${other.title}"`)
+                    overlaps.push(`"${g}" overlaps "${og}" on open task ${other.id.slice(0, 8)}… "${other.title}"`)
                   }
                 }
               }
@@ -1467,7 +1468,7 @@ export function apply(ctx: Context): void {
                 await notifyPeer(agent, task.assignee, `[team_task] New task assigned to you: ${task.title}${task.deadline ? ` (due ${task.deadline})` : ''}${priority ? ` (priority ${priority})` : ''}${task.writeSet ? ` You exclusively own: ${task.writeSet.join(', ')}.` : ''}${task.acceptance ? ` Done when: ${task.acceptance}` : ''}.\nClaim or update it with team_task(action:"claim"|"update", id:"${task.id}", ...), then file team_report(taskId:"${task.id}", summary, filesChanged, evidence) and mark the task done.`)
               } catch { /* notification is best-effort; the board is the source of truth */ }
             }
-            return { ok: true, tasks: [task], ...overlaps.length > 0 ? { warning: `writeSet overlap 鈥?overlapping ownership is a bug: ${overlaps.join('; ')}` } : {} }
+            return { ok: true, tasks: [task], ...overlaps.length > 0 ? { warning: `writeSet overlap — overlapping ownership is a bug: ${overlaps.join('; ')}` } : {} }
           })
         }
         case 'list': {
@@ -1504,7 +1505,7 @@ export function apply(ctx: Context): void {
             const task = tasks.find(t => t.id === id)
             if (task !== undefined && task.createdBy !== agent.session.id) {
               try {
-                await notifyPeer(agent, task.createdBy, `[team_task] ${agent.session.id.slice(0, 8)}鈥?claimed task ${task.title}.`)
+                await notifyPeer(agent, task.createdBy, `[team_task] ${agent.session.id.slice(0, 8)}… claimed task ${task.title}.`)
               } catch { /* best-effort */ }
             }
             return { ok: true, tasks: tasks.filter(t => t.id === id) }
@@ -1557,7 +1558,7 @@ export function apply(ctx: Context): void {
             const task = tasks.find(t => t.id === id)
             if (notify !== undefined) {
               try {
-                await notifyPeer(agent, notify.creator, `[team_task] ${agent.session.id.slice(0, 8)}鈥?set task "${notify.title}" to ${notify.status}${notify.result ? `: ${notify.result.slice(0, 200)}` : ''}.`)
+                await notifyPeer(agent, notify.creator, `[team_task] ${agent.session.id.slice(0, 8)}… set task "${notify.title}" to ${notify.status}${notify.result ? `: ${notify.result.slice(0, 200)}` : ''}.`)
               } catch { /* best-effort */ }
             }
             if (reassignTo !== undefined && task !== undefined) {
@@ -1575,7 +1576,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Task board: ${args.action}`, kind: 'other' as const }),
   }))
 
-  // 鈹€鈹€ team_report (fixed-schema fan-in report) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_report (fixed-schema fan-in report) ───────────────────────────────
   // Fan-in is parent-only with a fixed report schema: the coordinator merges
   // artifacts, not transcripts. Each finished task gets exactly one structured
   // record in .team/reports/<taskId>.json plus a ping to the task creator.
@@ -1631,7 +1632,7 @@ export function apply(ctx: Context): void {
       },
       render: (_args, value) => {
         const v = value
-        return [{ type: 'text' as const, text: `Report ${v.reportId.slice(0, 8)}鈥?filed${v.notified ? ' and the task creator was notified' : ''}. Now mark the task done with team_task(action:"update", status:"done").` }]
+        return [{ type: 'text' as const, text: `Report ${v.reportId.slice(0, 8)}… filed${v.notified ? ' and the task creator was notified' : ''}. Now mark the task done with team_task(action:"update", status:"done").` }]
       },
     },
     async execute(args, exec) {
@@ -1677,16 +1678,16 @@ export function apply(ctx: Context): void {
       let notified = false
       if (task.createdBy !== agent.session.id) {
         try {
-          await notifyPeer(agent, task.createdBy, `REPORT for task ${taskId.slice(0, 8)}鈥?"${task.title}": ${summary}`)
+          await notifyPeer(agent, task.createdBy, `REPORT for task ${taskId.slice(0, 8)}… "${task.title}": ${summary}`)
           notified = true
         } catch { /* notification is best-effort; the report file is the source of truth */ }
       }
       return { ok: true, reportId: report.reportId, notified }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Report task ${args.taskId.slice(0, 8)}鈥, kind: 'other' as const }),
+    presentCall: args => ({ card: 'generic' as const, title: `Report task ${args.taskId.slice(0, 8)}…`, kind: 'other' as const }),
   }))
 
-  // 鈹€鈹€ team_wrap (explicit termination 鈥?coordinator shutdown protocol) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_wrap (explicit termination — coordinator shutdown protocol) ────────
   // Termination is explicit, not assumed: the coordinator archives counts +
   // summary, drops a WRAP marker (which flips off the team_status wrapHint),
   // drains every inbox, and tells each live peer to go idle.
@@ -1765,7 +1766,7 @@ export function apply(ctx: Context): void {
         }, null, 2) + '\n')
       })
 
-      // 2. WRAP marker 鈥?its mere presence flips the team_status wrapHint off.
+      // 2. WRAP marker — its mere presence flips the team_status wrapHint off.
       const wrapFile = join(teamDir, 'WRAP')
       await withFileLock(wrapFile, () => {
         writeFileSync(wrapFile, `TEAM WRAP ${ts}\n\n${summary}\n`)
@@ -1783,7 +1784,7 @@ export function apply(ctx: Context): void {
       let wrappedPeers = 0
       for (const id of peerIds(agent)) {
         try {
-          await notifyPeer(agent, id, `TEAM_WRAP: ${summary} 鈥?archive tasks and go idle`)
+          await notifyPeer(agent, id, `TEAM_WRAP: ${summary} — archive tasks and go idle`)
           wrappedPeers++
         } catch { /* best-effort */ }
       }
@@ -1793,7 +1794,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Wrap up the team', kind: 'other' as const }),
   }))
 
-  // 鈹€鈹€ team_memory (shared durable memory) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_memory (shared durable memory) ────────────────────────────────────
   // The cross-session stand-in for a single conversation's shared transcript:
   // decisions and facts persist so peers never re-derive or re-transmit context.
 
@@ -1802,7 +1803,7 @@ export function apply(ctx: Context): void {
     description:
       'Shared durable key-value memory (.team/memory.jsonl) visible to every team session. '
       + 'Actions: set (store a fact/decision under a key), get (read the latest value), list (all entries), delete. '
-      + 'search (query: free text; ranked recall over ALL entries 鈥?use this when you know the topic but not the exact key). '
+      + 'search (query: free text; ranked recall over ALL entries — use this when you know the topic but not the exact key). '
       + 'Use it to persist decisions and facts so peers do not re-derive or re-transmit context.',
     parameters: {
       action: { type: 'string', required: true, enum: ['set', 'get', 'list', 'delete', 'search'], description: 'Which memory operation to run.' },
@@ -1823,11 +1824,11 @@ export function apply(ctx: Context): void {
             type: 'text' as const,
             text: hits.length === 0
               ? `No memory entries matched "${v.query}".`
-              : hits.map(e => `  鈥?${e.key} = ${e.value.slice(0, 160)}`).join('\n'),
+              : hits.map(e => `  • ${e.key} = ${e.value.slice(0, 160)}`).join('\n'),
           }]
         }
         if (v.entries !== undefined) {
-          return [{ type: 'text' as const, text: v.entries.length === 0 ? 'No memory entries.' : v.entries.map(e => `  鈥?${e.key} = ${e.value.slice(0, 160)}`).join('\n') }]
+          return [{ type: 'text' as const, text: v.entries.length === 0 ? 'No memory entries.' : v.entries.map(e => `  • ${e.key} = ${e.value.slice(0, 160)}`).join('\n') }]
         }
         return [{ type: 'text' as const, text: v.ok ? `${v.key ?? ''} ${v.value !== undefined ? `= ${v.value.slice(0, 160)}` : 'done'}` : `${v.key ?? ''} not found` }]
       },
@@ -1856,7 +1857,7 @@ export function apply(ctx: Context): void {
               const currentVersion = existing?.version ?? 0
               const expectedVersion = typeof args.version === 'number' ? args.version : 0
               if (currentVersion !== expectedVersion) {
-                // Version conflict 鈥?throw a typed error so the caller can catch it.
+                // Version conflict — throw a typed error so the caller can catch it.
                 // We use a special property to signal the conflict without throwing
                 // (since lockedUpdate would propagate the throw). Instead, we append
                 // a conflict marker and let the caller detect it.
@@ -1929,7 +1930,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Team memory: ${args.action}`, kind: 'other' as const }),
   }))
 
-  // 鈹€鈹€ team_review (independent multi-party verification) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_review (independent multi-party verification) ─────────────────────
   // Evaluator/critic pattern: a second session independently checks a result
   // before it is reported. This is the "many eyes" check a single conversation
   // cannot give itself.
@@ -1939,7 +1940,7 @@ export function apply(ctx: Context): void {
     description:
       'Request an independent review/verification from another team session (evaluator pattern). '
       + 'Sends the subject and content to a peer and records the request so the verdict can be collected. '
-      + 'Use this so a second pair of eyes validates results before you report them 鈥?a check a single conversation cannot perform.',
+      + 'Use this so a second pair of eyes validates results before you report them — a check a single conversation cannot perform.',
     parameters: {
       target: { type: 'string', required: true, description: 'Reviewer session id (a peer).' },
       subject: { type: 'string', required: true, description: 'Short label for what is being reviewed.' },
@@ -1957,7 +1958,7 @@ export function apply(ctx: Context): void {
       },
       render: (_args, value) => {
         const v = value as { reviewId: string; target: string }
-        return [{ type: 'text' as const, text: `Review ${v.reviewId.slice(0, 8)}鈥?requested from ${v.target.slice(0, 8)}鈥 }]
+        return [{ type: 'text' as const, text: `Review ${v.reviewId.slice(0, 8)}… requested from ${v.target.slice(0, 8)}…` }]
       },
     },
     async execute(args, exec) {
@@ -1975,7 +1976,7 @@ export function apply(ctx: Context): void {
       await deliverMessage(
         agent,
         target,
-        `REVIEW REQUEST (reviewId: ${reviewId}) from ${agent.session.id} 鈥?subject: ${subject}\n\nCONTENT TO VERIFY:\n${content}\n\nVerify independently: re-read the actual files/claims, do not assume correctness. Reply with team_send(target: "${agent.session.id}", reply_to: "${msgId}", message: "VERDICT: <pass|fail|needs-changes>\nFINDINGS:\n- ...").`,
+        `REVIEW REQUEST (reviewId: ${reviewId}) from ${agent.session.id} — subject: ${subject}\n\nCONTENT TO VERIFY:\n${content}\n\nVerify independently: re-read the actual files/claims, do not assume correctness. Reply with team_send(target: "${agent.session.id}", reply_to: "${msgId}", message: "VERDICT: <pass|fail|needs-changes>\nFINDINGS:\n- ...").`,
         undefined,
         msgId,
       )
@@ -1995,7 +1996,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Request review: ${args.subject}`, kind: 'other' as const }),
   }))
 
-  // 鈹€鈹€ team_review_collect (collect verdicts 鈥?closes the review loop) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_review_collect (collect verdicts — closes the review loop) ─────────
 
   ctx.tools.register(defineTool({
     name: 'team_review_collect',
@@ -2016,10 +2017,10 @@ export function apply(ctx: Context): void {
         }
         const lines = [`${v.verdicts.length} of ${v.total} review(s) returned a verdict.`]
         for (const x of v.verdicts) {
-          lines.push(`  鈥?${x.subject}: ${x.verdict} (from ${x.target.slice(0, 8)}鈥?`)
+          lines.push(`  • ${x.subject}: ${x.verdict} (from ${x.target.slice(0, 8)}…)`)
         }
         for (const p of v.pending) {
-          lines.push(`  鈥?PENDING: ${p.subject} (awaiting ${p.target.slice(0, 8)}鈥?`)
+          lines.push(`  • PENDING: ${p.subject} (awaiting ${p.target.slice(0, 8)}…)`)
         }
         return [{ type: 'text' as const, text: lines.join('\n') }]
       },
@@ -2062,7 +2063,7 @@ export function apply(ctx: Context): void {
                   if (typeof ev === 'object' && ev !== null && 'status' in ev) {
                     const status = (ev as StructuredEvidence).status
                     if (status === 'fail') {
-                      evidenceIssues.push(`Report ${report.reportId.slice(0, 8)}鈥?has failing evidence: ${(ev as StructuredEvidence).type} 鈥?${(ev as StructuredEvidence).command ?? 'no command'}`)
+                      evidenceIssues.push(`Report ${report.reportId.slice(0, 8)}… has failing evidence: ${(ev as StructuredEvidence).type} — ${(ev as StructuredEvidence).command ?? 'no command'}`)
                     }
                   }
                 }
@@ -2076,7 +2077,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Collect review verdicts', kind: 'read' as const }),
   }))
 
-  // 鈹€鈹€ team_status (one-shot team health snapshot) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_status (one-shot team health snapshot) ─────────────────────────────
 
   ctx.tools.register(defineTool({
     name: 'team_status',
@@ -2098,16 +2099,16 @@ export function apply(ctx: Context): void {
           wrapHint?: string
         }
         const lines = [
-          `Team status (self ${v.self.slice(0, 8)}鈥?:`,
+          `Team status (self ${v.self.slice(0, 8)}…):`,
           v.peers.length === 0
             ? '  peers: none live'
-            : `  peers: ${v.peers.map(p => `${p.id.slice(0, 8)}鈥?${Math.round(p.seenMsAgo / 1000)}s ago)`).join(', ')}`,
+            : `  peers: ${v.peers.map(p => `${p.id.slice(0, 8)}…(${Math.round(p.seenMsAgo / 1000)}s ago)`).join(', ')}`,
           `  unread inbox: ${v.unread}`,
           `  pending broadcasts: ${v.pendingBroadcasts}`,
           `  pending reviews: ${v.pendingReviews}`,
           `  tasks: ${Object.entries(v.tasks).map(([k, n]) => `${k}=${n}`).join(' ') || 'none'}`,
         ]
-        if (v.wrapHint !== undefined) lines.push(`  鈿?${v.wrapHint}`)
+        if (v.wrapHint !== undefined) lines.push(`  ⚑ ${v.wrapHint}`)
         return [{ type: 'text' as const, text: lines.join('\n') }]
       },
     },
@@ -2149,12 +2150,12 @@ export function apply(ctx: Context): void {
 
       // Explicit termination hint: with every task terminal and no WRAP marker
       // yet, the coordinator should close the mission instead of letting peers
-      // idle indefinitely. An empty board never hints 鈥?nothing was ever run.
+      // idle indefinitely. An empty board never hints — nothing was ever run.
       let wrapHint: string | undefined
       if (allTasks.length > 0
         && allTasks.every(t => t.status === 'done' || t.status === 'blocked')
         && !existsSync(teamPath(agent, 'WRAP'))) {
-        wrapHint = 'All tasks terminal 鈥?call team_wrap to archive and release peers.'
+        wrapHint = 'All tasks terminal — call team_wrap to archive and release peers.'
       }
 
       return Promise.resolve({
@@ -2165,7 +2166,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Team status snapshot', kind: 'read' as const }),
   }))
 
-  // 鈹€鈹€ team_barrier (named fan-in synchronization) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_barrier (named fan-in synchronization) ─────────────────────────────
 
   ctx.tools.register(defineTool({
     name: 'team_barrier',
@@ -2182,7 +2183,7 @@ export function apply(ctx: Context): void {
       schema: { type: 'object', additionalProperties: true },
       render: (_args, value) => {
         const v = value as unknown as { name: string; arrived: number; expect: number; reached: boolean; arrivedIds: string[] }
-        return [{ type: 'text' as const, text: `Barrier "${v.name}": ${v.arrived}/${v.expect} arrived${v.reached ? ' 鈥?REACHED' : ''}${v.arrivedIds.length ? ` (${v.arrivedIds.map(i => i.slice(0, 8)).join(', ')})` : ''}` }]
+        return [{ type: 'text' as const, text: `Barrier "${v.name}": ${v.arrived}/${v.expect} arrived${v.reached ? ' — REACHED' : ''}${v.arrivedIds.length ? ` (${v.arrivedIds.map(i => i.slice(0, 8)).join(', ')})` : ''}` }]
       },
     },
     execute(args, exec) {
@@ -2208,7 +2209,7 @@ export function apply(ctx: Context): void {
       return withFileLock(file, () => {
         let barrier: TeamBarrier = { name, expect, arrived: [], ts: new Date().toISOString() }
         if (existsSync(file)) {
-          try { barrier = JSON.parse(readFileSync(file, 'utf-8')) as TeamBarrier } catch { /* corrupted 鈥?reset */ }
+          try { barrier = JSON.parse(readFileSync(file, 'utf-8')) as TeamBarrier } catch { /* corrupted — reset */ }
           // `arrive` only bumps the arrival count; it must not overwrite the
           // threshold the coordinator established. A peer arriving with the
           // default expect=1 would otherwise collapse an N-peer barrier to 1.
@@ -2227,7 +2228,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Barrier ${args.action}: ${args.name}`, kind: 'other' as const }),
   }))
 
-  // 鈹€鈹€ team_workflow (F3: DAG execution engine) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_workflow (F3: DAG execution engine) ────────────────────────────────
   // Declarative DAG workflow: a coordinator defines nodes (tasks) with
   // dependencies, and the engine auto-schedules ready nodes (deps satisfied)
   // as team_tasks. When a node completes, the next dependent nodes become ready.
@@ -2370,7 +2371,7 @@ export function apply(ctx: Context): void {
         if (v.nodeStatus !== undefined) {
           const lines = [`Workflow "${v.name ?? ''}" status:`]
           for (const [nodeId, status] of Object.entries(v.nodeStatus)) {
-            const icon = status === 'completed' ? '鉁? : status === 'running' ? '鈻? : status === 'failed' ? '鉁? : status === 'cancelled' ? '鈯? : '鈼?
+            const icon = status === 'completed' ? '✓' : status === 'running' ? '▶' : status === 'failed' ? '✗' : status === 'cancelled' ? '⊘' : '○'
             lines.push(`  ${icon} ${nodeId}: ${status}`)
           }
           return [{ type: 'text' as const, text: lines.join('\n') }]
@@ -2479,7 +2480,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Workflow ${args.action}: ${args.name}`, kind: 'other' as const }),
   }))
 
-  // 鈹€鈹€ team_audit (F9: collaboration replay & audit) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── team_audit (F9: collaboration replay & audit) ───────────────────────────
   // Merges all .team/*.jsonl event logs into a unified timeline for replay,
   // audit, and statistics. Supports filtering by time range, session, and
   // action type.
@@ -2580,7 +2581,7 @@ export function apply(ctx: Context): void {
           const lines = [
             `Audit stats (${s.total} total events):`,
             `  By action: ${Object.entries(s.byAction).map(([k, n]) => `${k}=${n}`).join(', ') || 'none'}`,
-            `  By session: ${Object.entries(s.bySession).map(([k, n]) => `${k.slice(0, 8)}鈥?${n}`).join(', ') || 'none'}`,
+            `  By session: ${Object.entries(s.bySession).map(([k, n]) => `${k.slice(0, 8)}…=${n}`).join(', ') || 'none'}`,
             `  Errors: ${s.errorCount}`,
           ]
           return [{ type: 'text' as const, text: lines.join('\n') }]
@@ -2588,10 +2589,10 @@ export function apply(ctx: Context): void {
         if (v.events !== undefined) {
           if (v.events.length === 0) return [{ type: 'text' as const, text: 'No events match the filter.' }]
           const lines = v.events.slice(0, 50).map(e => {
-            const sess = e.session ? ` ${e.session.slice(0, 8)}鈥 : ''
+            const sess = e.session ? ` ${e.session.slice(0, 8)}…` : ''
             return `[${e.ts}] ${e.action}${sess} (${e.source})`
           })
-          const trunc = v.events.length > 50 ? `\n鈥?and ${v.events.length - 50} more.` : ''
+          const trunc = v.events.length > 50 ? `\n… and ${v.events.length - 50} more.` : ''
           return [{ type: 'text' as const, text: `${v.events.length} event(s):\n${lines.join('\n')}${trunc}` }]
         }
         return [{ type: 'text' as const, text: 'Audit complete.' }]
@@ -3406,7 +3407,7 @@ export function apply(ctx: Context): void {
     },
     presentCall: args => ({ card: 'generic' as const, title: `Agent ${args.action}`, kind: 'other' as const }),
   }))
-  // 鈹€鈹€ session_delete tool 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── session_delete tool ───────────────────────────────────────────────────
 
   ctx.tools.register(defineTool({
     name: 'session_delete',
