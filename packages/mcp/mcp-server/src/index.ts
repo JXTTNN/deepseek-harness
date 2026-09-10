@@ -15,7 +15,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { startServer } from './server.ts'
-import type { ServerHandle } from './server.ts'
 // Side-effect type imports: declaration-merge services onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
