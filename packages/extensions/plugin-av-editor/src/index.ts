@@ -22,10 +22,11 @@
  */
 
 import { execSync } from 'node:child_process'
-import { existsSync, statSync, readFileSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool as _defineTool } from '@deepseek-ai/dsh-tools'
+const defineTool = _defineTool as any
 
 export const name = 'plugin-av-editor'
 export const inject = ['tools']
@@ -47,17 +48,7 @@ function sh(cmd: string, timeoutMs = 120_000): string {
   }
 }
 
-/** Check that FFmpeg is available on PATH. */
-function ffmpegAvailable(): { ok: boolean; version: string } {
-  try {
-    const v = execSync('ffmpeg -version', { timeout: 5000, encoding: 'utf-8' })
-      .split('\n')[0]
-      .trim()
-    return { ok: true, version: v }
-  } catch {
-    return { ok: false, version: 'not found' }
-  }
-}
+
 
 /** Run ffprobe and return parsed JSON. */
 function ffprobe(filePath: string): Record<string, any> {
