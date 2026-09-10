@@ -15,6 +15,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 
 export const name = 'tool-workflow-run'
@@ -27,7 +28,7 @@ interface WorkflowStep {
   /** Name of the harness tool to invoke. */
   tool: string
   /** Arguments to pass to the tool. */
-  args?: Record<string, unknown>
+  args: Record<string, unknown>
   /** IDs of steps that must complete before this step starts. */
   depends_on?: string[]
   /** JS expression evaluated against the workflow context; falsy skips this step. */
@@ -37,6 +38,7 @@ interface WorkflowStep {
   /** Number of retry attempts on failure (default 0). */
   retry?: number
 }
+
 
 /** Result of one workflow step execution. */
 interface StepResult {
@@ -123,49 +125,20 @@ export function apply(ctx: Context): void {
     },
     async execute(args, exec) {
       const startTime = Date.now()
-      const steps = normalizeSteps(args.workflow.steps)
+      const steps = args.workflow.steps
       const globalContext = args.context ?? {}
 
       // Validate the DAG: check for duplicate IDs, unknown dependencies, and cycles.
-      validateDag(steps)
+      validateDag(steps as WorkflowStep[])
 
       // Execute the workflow.
-      const results = await executeWorkflow(ctx, steps, globalContext, exec.signal)
+      const results = await executeWorkflow(ctx, steps as WorkflowStep[], globalContext, exec.signal)
 
       const duration_ms = Date.now() - startTime
       const result: WorkflowResult = { steps: results, duration_ms }
       return result as unknown as JsonValue
     },
   }))
-}
-
-/**
- * Normalize raw step arguments from the JSON schema (where args is JsonValue)
- * into the WorkflowStep type with optional args as Record.
- */
-function normalizeSteps(raw: Array<Record<string, unknown>>): WorkflowStep[] {
-  return raw.map(step => {
-    const normalized: WorkflowStep = {
-      id: step.id as string,
-      tool: step.tool as string,
-    }
-    if (step.args !== undefined && step.args !== null) {
-      normalized.args = step.args as Record<string, unknown>
-    }
-    if (step.depends_on !== undefined) {
-      normalized.depends_on = step.depends_on as string[]
-    }
-    if (step.condition !== undefined) {
-      normalized.condition = step.condition as string
-    }
-    if (step.parallel !== undefined) {
-      normalized.parallel = step.parallel as boolean
-    }
-    if (step.retry !== undefined) {
-      normalized.retry = step.retry as number
-    }
-    return normalized
-  })
 }
 
 /**
@@ -223,6 +196,7 @@ async function executeWorkflow(
   signal: AbortSignal,
 ): Promise<Record<string, StepResult>> {
   const results: Record<string, StepResult> = {}
+
   const completed = new Set<string>()
 
   while (completed.size < steps.length) {
@@ -284,7 +258,7 @@ async function executeStep(
 
   // Execute with retries.
   const maxRetries = Math.min(step.retry ?? DEFAULT_RETRY, MAX_RETRY)
-  let lastError = 'unknown error'
+  let lastError: string | undefined
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     signal.throwIfAborted()
     try {
@@ -295,7 +269,7 @@ async function executeStep(
       if (attempt < maxRetries) continue
     }
   }
-  return { status: 'failed', error: lastError }
+  return { status: 'failed', ...(lastError !== undefined ? { error: lastError } : {}) }
 }
 
 /**
