@@ -34,6 +34,7 @@ import {
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+
 import { createTransport } from './transport.ts'
 import type { Config } from './index.ts'
 
@@ -190,6 +191,12 @@ function projectContentBlock(block: ContentBlock): { type: string; text?: string
 
 // ---- Resources bridge (M2) ----
 
+/** Tracked resource subscribers for change notifications. */
+interface ResourceSubscription {
+  uri: string
+  notify: () => void
+}
+
 /**
  * Register MCP `resources/list`, `resources/read`, and
  * `resources/templates/list` handlers that bridge harness file-system, web,
@@ -200,6 +207,8 @@ function projectContentBlock(block: ContentBlock): { type: string; text?: string
  * - `web://<url>` — mapped to the web tool (web_fetch)
  */
 function registerResourceHandlers(ctx: Context, server: Server): void {
+  const subscriptions = new Set<ResourceSubscription>()
+
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
     const resources: Array<{ uri: string; name: string; description?: string; mimeType?: string }> = []
     // Expose file-system resources from the fs tool if available
@@ -262,6 +271,11 @@ function registerResourceHandlers(ctx: Context, server: Server): void {
     } finally {
       clearTimeout(timeout)
     }
+  })
+
+  // Notify subscribers when the tool registry changes (resources may follow).
+  ctx.on('tools/change', () => {
+    for (const sub of subscriptions) sub.notify()
   })
 }
 
@@ -336,7 +350,7 @@ function registerPromptHandlers(ctx: Context, server: Server): void {
     const skills = ctx.get('skills')
     if (skills !== undefined) {
       try {
-        const skillList = await skills.list()
+        const skillList = await (skills as { list(): Promise<unknown[]> | unknown[]> }).list() as Array<{ name: string; description: string; invocation: { modelInvocable: boolean } }>
         for (const skill of skillList) {
           if (skill.invocation.modelInvocable) {
             prompts.push({
@@ -413,12 +427,12 @@ async function getSkillPrompt(
     throw new McpError(ErrorCode.MethodNotFound, 'skills service is not available')
   }
   try {
-    const skillList = await skills.list()
+    const skillList = await (skills as { list(): Promise<unknown[]> | unknown[]> }).list() as Array<{ name: string }>
     const summary = skillList.find(s => s.name === skillName)
     if (summary === undefined) {
       throw new McpError(ErrorCode.InvalidParams, `unknown skill "${skillName}"`)
     }
-    const body = await skills.load(skillName, { signal })
+    const body = await (skills as { load(name: string, opts: { signal: AbortSignal }): Promise<unknown> }).load(skillName, { signal })
     const text = typeof body === 'string' ? body : JSON.stringify(body)
     return {
       messages: [{
