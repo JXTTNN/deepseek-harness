@@ -54,7 +54,7 @@ export async function callEngine3d(request: BridgeRequest, timeoutMs = 30_000): 
 
   // Engine3d always writes valid JSON to stdout, even on error.
   try {
-    return JSON.parse(stdout as string) as BridgeResponse
+    return JSON.parse(String(stdout)) as BridgeResponse
   } catch {
     return { ok: false, error: `engine3d parse failure: stdout=${stdout}  stderr=${stderr}` }
   }
