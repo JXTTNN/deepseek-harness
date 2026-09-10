@@ -304,6 +304,10 @@
     { "path": "./packages/lsp/lsp" },
     { "path": "./packages/lsp/lsp-stdio" },
     { "path": "./packages/lsp/tool-lsp" },
-    { "path": "./apps/cli" }
+    { "path": "./apps/cli" },
+    { "path": "./packages/extensions/tool-semantic-search" },
+    { "path": "./packages/extensions/tool-diff-merge" },
+    { "path": "./packages/extensions/tool-dependency-graph" },
+    { "path": "./packages/extensions/tool-test-impact" }
   ]
 }
