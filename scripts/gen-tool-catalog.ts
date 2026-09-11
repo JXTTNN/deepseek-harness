@@ -64,6 +64,12 @@ import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import { githubSlug } from './verify-md-links.ts'
+import * as ToolDependencyGraph from '@deepseek-ai/dsh-tool-dependency-graph'
+import * as ToolDiffMerge from '@deepseek-ai/dsh-tool-diff-merge'
+import * as ToolProgrammingAssistant from '@deepseek-ai/dsh-tool-programming-assistant'
+import * as ToolSemanticSearch from '@deepseek-ai/dsh-tool-semantic-search'
+import * as ToolTestImpact from '@deepseek-ai/dsh-tool-test-impact'
+import * as ToolWorkflowRun from '@deepseek-ai/dsh-tool-workflow-run'
 
 /** Attachment seam marker that makes the attachments-conditional `read_image` schema harvestable. */
 class CatalogAttachmentStore extends AttachmentStore {
@@ -550,6 +556,72 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-dependency-graph',
+    dir: 'tool-dependency-graph',
+    source: 'packages/extensions/tool-dependency-graph/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(ToolDependencyGraph)
+    },
+    note: 'dependency_graph analyzes project dependency relationships.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-diff-merge',
+    dir: 'tool-diff-merge',
+    source: 'packages/extensions/tool-diff-merge/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(ToolDiffMerge)
+    },
+    note: 'diff_merge performs three-way merge of file changes.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-programming-assistant',
+    dir: 'tool-programming-assistant',
+    source: 'packages/extensions/tool-programming-assistant/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(ToolProgrammingAssistant)
+    },
+    note: 'programming_assistant provides code generation and refactoring assistance.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-semantic-search',
+    dir: 'tool-semantic-search',
+    source: 'packages/extensions/tool-semantic-search/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(ToolSemanticSearch)
+    },
+    note: 'semantic_search performs semantic code search using embeddings.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-test-impact',
+    dir: 'tool-test-impact',
+    source: 'packages/extensions/tool-test-impact/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(ToolTestImpact)
+    },
+    note: 'test_impact analyzes which tests are affected by code changes.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-workflow-run',
+    dir: 'tool-workflow-run',
+    source: 'packages/extensions/tool-workflow-run/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(ToolWorkflowRun)
+    },
+    note: 'workflow_run executes CI/CD workflow steps and returns results.',
   },
 ]
 
