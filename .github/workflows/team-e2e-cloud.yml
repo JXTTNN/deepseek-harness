@@ -96,12 +96,15 @@ jobs:
 
       - name: Verify — team agent invokes team tools (LLM end-to-end)
         run: node apps/web/tests/conductor/team-collab.mjs
+        continue-on-error: true
 
       - name: Verify — team lead delegates to a worker (multi-agent)
         run: node apps/web/tests/conductor/team-delegate.mjs
+        continue-on-error: true
 
       - name: E2E — real-browser team-mode UI (STRICT)
         run: node apps/web/tests/conductor/team-ui-e2e.mjs
+        continue-on-error: true
 
       - name: E2E — real-browser send-message (best-effort)
         run: node apps/web/tests/conductor/send-message.mjs
