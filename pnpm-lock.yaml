@@ -6909,15 +6909,6 @@ importers:
         specifier: workspace:^
         version: link:../../core/scope
 
-  packages/skill/skill-anysearch:
-    dependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-skill':
-        specifier: workspace:^
-        version: link:../skill
-
   packages/skill/skill-badge:
     devDependencies:
       '@deepseek-ai/cordis':
@@ -6954,15 +6945,6 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
-      '@deepseek-ai/dsh-skill':
-        specifier: workspace:^
-        version: link:../skill
-
-  packages/skill/skill-memory:
-    dependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../skill
