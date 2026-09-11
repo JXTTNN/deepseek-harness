@@ -474,7 +474,17 @@
         "sonarjs/no-duplicated-branches": "off",
         "sonarjs/no-all-duplicated-branches": "off",
         "sonarjs/no-identical-conditions": "off",
-        "sonarjs/no-identical-expressions": "off"
+        "sonarjs/no-identical-expressions": "off",
+        "@stylistic/indent": "off",
+        "@stylistic/semi": "off",
+        "@stylistic/quotes": "off",
+        "@stylistic/comma-dangle": "off",
+        "@stylistic/eol-last": "off",
+        "@stylistic/no-trailing-spaces": "off",
+        "@stylistic/object-curly-spacing": "off",
+        "@stylistic/arrow-parens": "off",
+        "@stylistic/member-delimiter-style": "off",
+        "@stylistic/max-len": "off"
       },
       "plugins": ["typescript"],
       "jsPlugins": ["@stylistic/eslint-plugin", "eslint-plugin-sonarjs"]
