@@ -11,7 +11,7 @@ import { join } from 'node:path'
 // ---------- CLI Args ----------
 const args = process.argv.slice(2)
 const getArg = (name: string, fallback: string) =>
-  args.find(a => a.startsWith(`--${name}=`))?.split('=')[1] || fallback
+  args.find((a) => a.startsWith(`--${name}=`))?.split('=')[1] ?? fallback
 
 const WORKSPACE = getArg('workspace', '/tmp/dsh-team-sim')
 const SCENARIO = process.env.DSH_TEST_SCENARIO || getArg('scenario', 'full-suite')
@@ -30,21 +30,34 @@ interface TestResult {
   duration: number
 }
 
+interface JsonlRecord {
+  from?: string
+  to?: string
+  content?: string
+  type?: string
+  timestamp?: number
+  agent?: string
+  key?: string
+  value?: string
+  step?: number
+  thought?: string
+}
+
 const results: TestResult[] = []
-let totalErrors: string[] = []
+const totalErrors: string[] = []
 
 // ---------- Helpers ----------
 function ensureDir(dir: string) {
   mkdirSync(dir, { recursive: true })
 }
 
-function writeJsonl(filePath: string, data: any) {
+function writeJsonl(filePath: string, data: JsonlRecord) {
   appendFileSync(filePath, JSON.stringify(data) + '\n')
 }
 
-function readJsonlAll(filePath: string): any[] {
+function readJsonlAll(filePath: string): JsonlRecord[] {
   if (!existsSync(filePath)) return []
-  return readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean).map((l: string) => JSON.parse(l))
+  return readFileSync(filePath, 'utf-8').trim().split('\n').filter(Boolean).map((l: string) => JSON.parse(l) as JsonlRecord)
 }
 
 // ---------- Scenarios ----------
@@ -58,7 +71,7 @@ const scenarios = [
 
 async function runScenario(scenarioName: string): Promise<TestResult> {
   const startTime = Date.now()
-  console.log(`\n🚀 Running: ${scenarioName}`)
+  console.log(`\n?? Running: ${scenarioName}`)
 
   const scenarioDir = join(WORKSPACE, scenarioName)
   ensureDir(scenarioDir)
@@ -79,13 +92,13 @@ async function runScenario(scenarioName: string): Promise<TestResult> {
   }))
 
   // 1) Initialize presence
-  agents.forEach(agent => {
+  agents.forEach((agent) => {
     writeFileSync(
       join(teamDir, 'presence', `${agent.id}.json`),
-      JSON.stringify({ ...agent, lastSeen: Date.now() }, null, 2)
+      JSON.stringify({ ...agent, lastSeen: Date.now() }, null, 2),
     )
   })
-  console.log(`   ✓ Initialized ${agents.length} agents`)
+  console.log(`   ? Initialized ${agents.length} agents`)
 
   // 2) Simulate conversations
   let messagesExchanged = 0
@@ -97,23 +110,23 @@ async function runScenario(scenarioName: string): Promise<TestResult> {
     const inboxPath = join(teamDir, 'inbox', `${agent.id}.jsonl`)
 
     // Each agent sends messages
-    const outboxMessages = [
+    const outboxMessages: JsonlRecord[] = [
       {
         from: agent.id,
         to: 'team',
         content: `Agent ${agent.id} initialized. Ready to collaborate.`,
-        type: 'report' as const,
+        type: 'report',
         timestamp: Date.now(),
       },
       {
         from: agent.id,
         to: 'team',
         content: `Task status: ${agent.role} has started working on assigned tasks.`,
-        type: 'task' as const,
+        type: 'task',
         timestamp: Date.now() + 100,
       },
     ]
-    outboxMessages.forEach(msg => writeJsonl(inboxPath, msg))
+    outboxMessages.forEach((msg) => writeJsonl(inboxPath, msg))
     messagesExchanged += 2
 
     // Each agent creates a task
@@ -156,9 +169,9 @@ async function runScenario(scenarioName: string): Promise<TestResult> {
     writeFileSync(presenceFile, JSON.stringify(presence, null, 2))
   }
 
-  console.log(`   ✓ Messages exchanged: ${messagesExchanged}`)
-  console.log(`   ✓ Tasks created: ${tasksCreated}`)
-  console.log(`   ✓ Memory entries: ${memoryEntries}`)
+  console.log(`   ? Messages exchanged: ${messagesExchanged}`)
+  console.log(`   ? Tasks created: ${tasksCreated}`)
+  console.log(`   ? Memory entries: ${memoryEntries}`)
 
   // 3) Generate team report
   const reportFile = join(teamDir, 'reports', 'team-summary.json')
@@ -172,7 +185,7 @@ async function runScenario(scenarioName: string): Promise<TestResult> {
     timestamp: Date.now(),
   }
   writeFileSync(reportFile, JSON.stringify(report, null, 2))
-  console.log(`   ✓ Report generated: ${reportFile}`)
+  console.log(`   ? Report generated: ${reportFile}`)
 
   // 4) Validate results
   const errors: string[] = []
@@ -185,14 +198,14 @@ async function runScenario(scenarioName: string): Promise<TestResult> {
 
   // Validate memory search works (BM25-lite)
   const allMemory = readJsonlAll(join(teamDir, 'memory', 'entries.jsonl'))
-  const searchResults = allMemory.filter(m => m.value.includes('decided'))
+  const searchResults = allMemory.filter((m) => m.value?.includes('decided') ?? false)
   if (searchResults.length !== agents.length) {
     errors.push(`Memory search: expected ${agents.length} results, got ${searchResults.length}`)
   }
 
   // Validate task completion
-  const allTasks = readdirSync(join(teamDir, 'tasks')).map(f =>
-    JSON.parse(readFileSync(join(teamDir, 'tasks', f), 'utf-8'))
+  const allTasks = readdirSync(join(teamDir, 'tasks')).map((f) =>
+    JSON.parse(readFileSync(join(teamDir, 'tasks', f), 'utf-8')),
   )
   if (allTasks.length !== tasksCreated) {
     errors.push(`Expected ${tasksCreated} tasks, found ${allTasks.length}`)
@@ -208,7 +221,7 @@ async function runScenario(scenarioName: string): Promise<TestResult> {
 
   const passed = errors.length === 0
   const duration = Date.now() - startTime
-  console.log(`   ${passed ? '✅' : '❌'} ${scenarioName} ${passed ? 'PASSED' : 'FAILED'} (${duration}ms)`)
+  console.log(`   ${passed ? '?' : '?'} ${scenarioName} ${passed ? 'PASSED' : 'FAILED'} (${duration}ms)`)
 
   return {
     scenario: scenarioName,
@@ -248,13 +261,13 @@ async function main() {
   console.log('TEST RESULTS SUMMARY')
   console.log('='.repeat(60))
 
-  const passedCount = results.filter(r => r.passed).length
+  const passedCount = results.filter((r) => r.passed).length
   const totalCount = results.length
 
-  results.forEach(r => {
-    console.log(`  ${r.passed ? '✅' : '❌'} ${r.scenario} (${r.duration}ms)`)
+  results.forEach((r) => {
+    console.log(`  ${r.passed ? '?' : '?'} ${r.scenario} (${r.duration}ms)`)
     if (r.errors.length > 0) {
-      r.errors.forEach(e => console.log(`     - ${e}`))
+      r.errors.forEach((e) => console.log(`     - ${e}`))
     }
   })
 
@@ -267,7 +280,7 @@ async function main() {
   ensureDir(reportDir)
   writeFileSync(
     join(reportDir, 'simulation-results.json'),
-    JSON.stringify({ results, totalErrors }, null, 2)
+    JSON.stringify({ results, totalErrors }, null, 2),
   )
 
   // Exit with error if any scenario failed
@@ -276,7 +289,7 @@ async function main() {
   }
 }
 
-main().catch(e => {
+main().catch((e) => {
   console.error('Fatal error:', e)
   process.exit(1)
 })
