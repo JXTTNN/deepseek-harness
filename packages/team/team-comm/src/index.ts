@@ -2464,7 +2464,7 @@ export function apply(ctx: Context): void {
           return { ok: true, name, nodeStatus: state.nodeStatus, taskIds: state.taskIds }
         }
         case 'cancel': {
-          let state = readWorkflow(agent, name)
+          const state = readWorkflow(agent, name)
           if (state === undefined) {
             return { ok: false, error: `workflow "${name}" not found` }
           }
