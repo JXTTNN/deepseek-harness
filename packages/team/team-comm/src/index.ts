@@ -3689,6 +3689,7 @@ export function apply(ctx: Context): void {
         skills: { type: 'array', items: { type: 'string' }, description: 'Skill names to search and inject into the subagent prompt (e.g. ["code-review","deep-research"]). Ephemeral: cleaned up when the subagent disposes.' },
         toolFilter: {
           type: 'object',
+          additionalProperties: false,
           properties: {
             allow: { type: 'array', items: { type: 'string' }, description: 'Tool whitelist.' },
             deny: { type: 'array', items: { type: 'string' }, description: 'Tool blacklist.' },
