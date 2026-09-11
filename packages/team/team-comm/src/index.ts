@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import type { IncomingMessage } from 'node:http'
 import { dirname, join, relative } from 'node:path'
@@ -39,6 +39,16 @@ const PRESENCE_STALE_MS = 60 * 60_000
 
 /** A `.lock` file older than this (ms) is treated as orphaned and broken. */
 const FILE_LOCK_STALE_MS = 10_000
+
+/**
+ * How often a lock holder refreshes its lock's mtime. Staleness is judged from
+ * mtime, so a holder whose critical section legitimately runs longer than
+ * FILE_LOCK_STALE_MS has to keep proving it is alive; otherwise a contender
+ * breaks a *live* lock and both proceed into the same read-modify-write,
+ * silently losing one side's update. Must stay well under
+ * FILE_LOCK_STALE_MS so a single missed tick cannot cross the threshold.
+ */
+const FILE_LOCK_HEARTBEAT_MS = 2_000
 
 /** Keep the most recent messages in an inbox so files stay bounded and scans stay fast. */
 const MAX_INBOX_MESSAGES = 500
@@ -156,8 +166,21 @@ function withFileLock<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
         await sleep(10 + Math.floor(Math.random() * 20))
       }
     }
+    let heartbeat: NodeJS.Timeout | undefined
+    const touch = (): void => {
+      // Best-effort: a vanished lock file means someone already broke it, and
+      // the release below is best-effort too.
+      try { utimesSync(lockPath, new Date(), new Date()) } catch { /* vanished */ }
+    }
     try {
-      return await fn()
+      heartbeat = setInterval(touch, FILE_LOCK_HEARTBEAT_MS)
+      // Never hold the event loop open for a lock heartbeat.
+      heartbeat.unref()
+      try {
+        return await fn()
+      } finally {
+        clearInterval(heartbeat)
+      }
     } finally {
       try { rmSync(lockPath, { force: true }) } catch { /* best-effort */ }
     }
