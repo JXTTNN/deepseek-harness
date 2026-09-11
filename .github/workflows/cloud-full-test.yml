@@ -1,0 +1,100 @@
+# Cloud-only full-test lane. Everything this repository verifies is verified
+# here, on hosted runners: no local clone, no local install, no local run.
+# Push to main / cloud-audit/**, open a PR, or dispatch manually and read the
+# result in the Actions tab.
+name: Cloud Full Test
+
+on:
+  push:
+    branches: [main, 'cloud-audit/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-full-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRIMARY_NODE_VERSION: '22'
+
+jobs:
+  static:
+    name: Typecheck + lint + cloud-probe syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Syntax gate over the cloud conductor probes
+        run: |
+          set -euo pipefail
+          fail=0
+          count=0
+          while IFS= read -r file; do
+            count=$((count + 1))
+            if ! node --check "$file"; then
+              echo "::error file=$file::syntax error in cloud conductor probe"
+              fail=1
+            fi
+          done < <(find apps/web/tests/conductor -name '*.mjs' | sort)
+          echo "checked $count cloud conductor probe(s)"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no cloud conductor probes found"
+            exit 1
+          fi
+          exit "$fail"
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+  unit:
+    name: Full unit suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm run build
+
+      - name: Full unit suite
+        run: pnpm run test 2>&1 | tee unit-test-output.txt
+
+      - name: Upload unit output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-full-test-unit-output
+          path: unit-test-output.txt
+          if-no-files-found: ignore
+          retention-days: 7
