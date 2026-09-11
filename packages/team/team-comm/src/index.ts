@@ -3494,6 +3494,579 @@ export function apply(ctx: Context): void {
       kind: 'delete' as const,
     }),
   }))
+  // ==========================================================================
+  // -- team_spawn: dynamic subagent delegation with skill injection ----------
+  //
+  // Allows a team-mode session to spawn child subagents on demand. Each
+  // subagent gets parent-child attribution (parentSession), can access the
+  // .team/ directory for collaboration, and supports both one-shot and
+  // continuable modes. Recursive delegation is controlled by maxDepth.
+  //
+  // Skill injection: the caller names skills (e.g. ["code-review",
+  // "deep-research"]) at spawn time. The tool searches ctx.skills for each
+  // name, renders the matching SKILL.md bodies, and prepends them to the
+  // subagent's prompt. The injection is ephemeral — it lives only in the
+  // child's prompt, not in any persistent config — so "用完就删除" is
+  // automatic: when the child disposes, the skill text goes with it.
+  // "现创建现搜索" means every team_spawn call re-queries ctx.skills; no
+  // cache, no pre-configuration.
+  // ==========================================================================
+
+  const subagentsService = ctx.get('subagents' as any) as
+    | {
+        start(name: string, request: any): Promise<any>
+        startContinuable(spec: any): Promise<{ childId: string; messageId: string }>
+        followup(parent: any, childId: string, content: any[], options: any): Promise<string>
+        interrupt(targetSessionId: string, authority: any): void
+        listChildren(parentSessionId: string, signal?: AbortSignal): Promise<any[]>
+        listDescendants(rootSessionId: string, signal?: AbortSignal): Promise<any[]>
+        getProvider(name: string): any
+        list(): string[]
+      }
+    | undefined
+
+  const skillsService = ctx.get('skills' as any) as
+    | {
+        list(options?: any): Promise<any[]>
+        get(name: string, options?: any): Promise<any | undefined>
+      }
+    | undefined
+
+  if (subagentsService !== undefined) {
+    /** Default subagent provider. */
+    const DEFAULT_SPAWN_PROVIDER = 'spawn'
+
+    /** Default max delegation depth. */
+    const DEFAULT_SPAWN_MAX_DEPTH = 3
+
+    /** Render a loaded skill definition into a prompt-prefix block. */
+    function renderSkillForPrompt(skill: { name: string; content: string; description?: string }): string {
+      return [
+        `<skill_content name="${skill.name}">`,
+        '<skill_instructions>',
+        skill.content,
+        '</skill_instructions>',
+        '</skill_content>',
+      ].join('\n')
+    }
+
+    /**
+     * Search and load skills by name from ctx.skills. Returns a prompt prefix
+     * containing all found skill bodies, or an empty string if none found.
+     * "现创建现搜索": every call re-queries the skill registry; no caching.
+     */
+    async function loadSkillsForSpawn(
+      skillNames: string[],
+      cwd: string | undefined,
+      signal: AbortSignal,
+    ): Promise<{ prefix: string; found: string[]; missing: string[] }> {
+      if (skillsService === undefined || skillNames.length === 0) {
+        return { prefix: '', found: [], missing: skillNames }
+      }
+      const found: string[] = []
+      const missing: string[] = []
+      const bodies: string[] = []
+      for (const name of skillNames) {
+        try {
+          const skill = await skillsService.get(name, { cwd, signal })
+          if (skill !== undefined && typeof skill.content === 'string') {
+            bodies.push(renderSkillForPrompt(skill))
+            found.push(name)
+          } else {
+            missing.push(name)
+          }
+        } catch {
+          missing.push(name)
+        }
+      }
+      const prefix = bodies.length > 0
+        ? bodies.join('\n\n') + '\n\n'
+        : ''
+      return { prefix, found, missing }
+    }
+
+    /** Write a spawn record to .team/spawns/ for team visibility. */
+    function writeSpawnRecord(
+      agent: { session: { id: string; header?: { cwd?: string } } },
+      childId: string,
+      spec: {
+        label: string
+        mode: 'one-shot' | 'continuable'
+        provider: string
+        role?: string
+        depth?: number
+        skills?: string[]
+      },
+    ): void {
+      const cwd = teamCwd(agent)
+      const spawnsDir = join(cwd, TEAM_DIR, 'spawns')
+      mkdirSync(spawnsDir, { recursive: true })
+      const record = {
+        childId,
+        parentSessionId: agent.session.id,
+        label: spec.label,
+        mode: spec.mode,
+        provider: spec.provider,
+        role: spec.role,
+        depth: spec.depth,
+        skills: spec.skills,
+        spawnedAt: Date.now(),
+      }
+      const file = join(spawnsDir, `${childId}.json`)
+      const fd = openSync(file, 'w')
+      try {
+        writeFileSync(fd, JSON.stringify(record, null, 2))
+        fsyncSync(fd)
+      } finally {
+        closeSync(fd)
+      }
+    }
+
+    /** List spawn records for a parent session. */
+    function listSpawnRecords(
+      agent: { session: { id: string; header?: { cwd?: string } } },
+    ): Array<{ childId: string; parentSessionId: string; label: string; mode: string; provider: string; role?: string; depth?: number; skills?: string[]; spawnedAt: number }> {
+      const cwd = teamCwd(agent)
+      const spawnsDir = join(cwd, TEAM_DIR, 'spawns')
+      if (!existsSync(spawnsDir)) return []
+      const records: any[] = []
+      for (const file of readdirSync(spawnsDir)) {
+        if (!file.endsWith('.json')) continue
+        try {
+          const raw = readFileSync(join(spawnsDir, file), 'utf8')
+          const rec = JSON.parse(raw)
+          if (rec.parentSessionId === agent.session.id) records.push(rec)
+        } catch { /* skip corrupt */ }
+      }
+      return records.sort((a, b) => a.spawnedAt - b.spawnedAt)
+    }
+
+    // -- team_spawn: spawn a subagent with optional skill injection --
+
+    ctx.tools.register(_defineToolAny({
+      name: 'team_spawn',
+      description:
+        'Spawn a subagent (child agent) for delegated work, with team integration and skill injection. '
+        + 'The subagent can access the .team/ directory for collaboration with other team members. '
+        + 'Mode "one-shot" (default): the subagent runs the task and returns its result. '
+        + 'Set run_in_background=true to return immediately with a job id. '
+        + 'Mode "continuable": the subagent stays alive for multi-turn interaction; '
+        + 'use team_spawn_followup to send later messages and team_spawn_interrupt to stop it. '
+        + 'Skills: pass skill names (e.g. ["code-review","deep-research"]) to search and inject '
+        + 'skill instructions into the subagent prompt. Skills are ephemeral — they exist only '
+        + 'in the child prompt and are cleaned up automatically when the subagent disposes. '
+        + 'Parent-child attribution is recorded in .team/spawns/ for team visibility. '
+        + 'Recursive delegation is controlled by maxDepth (default 3).',
+      parameters: {
+        description: { type: 'string', required: true, description: 'A short (3-5 word) label for the delegated task.' },
+        prompt: { type: 'string', required: true, description: 'The complete task prompt for the subagent.' },
+        provider: { type: 'string', description: 'Subagent provider name (default "spawn"). Available: spawn, fork, acp.' },
+        mode: { type: 'string', enum: ['one-shot', 'continuable'], description: 'Delegation mode (default "one-shot").' },
+        run_in_background: { type: 'boolean', description: 'For one-shot: run as background job. For continuable: always background.' },
+        skills: { type: 'array', items: { type: 'string' }, description: 'Skill names to search and inject into the subagent prompt (e.g. ["code-review","deep-research"]). Ephemeral: cleaned up when the subagent disposes.' },
+        toolFilter: {
+          type: 'object',
+          properties: {
+            allow: { type: 'array', items: { type: 'string' }, description: 'Tool whitelist.' },
+            deny: { type: 'array', items: { type: 'string' }, description: 'Tool blacklist.' },
+          },
+          description: 'Tool scoping for the subagent.',
+        },
+        maxDepth: { type: 'number', description: 'Maximum delegation depth for recursive subagent spawning (default 3).' },
+        persona: { type: 'string', description: 'Per-child persona that shadows the deployment persona.' },
+        role: { type: 'string', description: 'Team role to assign to this subagent (recorded in .team/spawns/).' },
+      },
+      output: {
+        schema: {
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, const: 'foreground' },
+                subagentId: { type: 'string', required: true },
+                output: { type: 'array', required: true, items: { type: 'json' } },
+                stopReason: { type: 'string', required: true },
+                skillsFound: { type: 'array', items: { type: 'string' } },
+                skillsMissing: { type: 'array', items: { type: 'string' } },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, const: 'background' },
+                jobId: { type: 'string', required: true },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, const: 'continuable' },
+                subagentId: { type: 'string', required: true },
+                messageId: { type: 'string', required: true },
+                skillsFound: { type: 'array', items: { type: 'string' } },
+                skillsMissing: { type: 'array', items: { type: 'string' } },
+              },
+            },
+          ],
+        },
+        render: (_args: any, value: any) => [{
+          type: 'text',
+          text: value.kind === 'foreground'
+            ? `subagent ${value.subagentId} completed: ${JSON.stringify(value.output)}`
+            : value.kind === 'background'
+              ? `started background subagent job ${value.jobId}`
+              : `started continuable subagent ${value.subagentId}`,
+        }],
+      },
+      isConcurrencySafe: () => true,
+      async execute(args: any, exec: any) {
+        const agent = exec.agent
+        if (!agent) throw new Error('team_spawn: no agent context (exec.agent was undefined)')
+
+        const providerName = args.provider ?? DEFAULT_SPAWN_PROVIDER
+        const provider = subagentsService.getProvider(providerName)
+        if (provider === undefined) {
+          const available = subagentsService.list()
+          throw new Error(`team_spawn: provider "${providerName}" not registered. Available: ${available.join(', ') || 'none'}`)
+        }
+
+        const mode = args.mode ?? 'one-shot'
+        const maxDepth = args.maxDepth ?? DEFAULT_SPAWN_MAX_DEPTH
+        const label = args.description
+        const skillNames: string[] = Array.isArray(args.skills) ? args.skills : []
+        const cwd = teamCwd(agent)
+
+        // "现创建现搜索": load skills on demand for this spawn
+        const { prefix: skillPrefix, found: skillsFound, missing: skillsMissing } = await loadSkillsForSpawn(skillNames, cwd, exec.signal)
+
+        // Build the prompt: skill instructions first, then the user's task prompt
+        const fullPromptText = skillPrefix + args.prompt
+        const promptContent = [{ type: 'text', text: fullPromptText }]
+
+        // Build the start request
+        const request: any = {
+          label,
+          prompt: promptContent,
+          parent: agent,
+          signal: exec.signal,
+          ...args.persona !== undefined ? { persona: args.persona } : {},
+          ...args.toolFilter !== undefined ? { toolFilter: args.toolFilter } : {},
+          maxDepth,
+        }
+
+        if (mode === 'continuable') {
+          // Continuable: always background, returns child id immediately
+          const started = await subagentsService.startContinuable({
+            provider: providerName,
+            label,
+            request,
+            signal: exec.signal,
+          })
+          // Record spawn for team visibility
+          try {
+            writeSpawnRecord(agent, started.childId, { label, mode: 'continuable', provider: providerName, role: args.role, depth: maxDepth, skills: skillNames })
+          } catch { /* best-effort */ }
+          return { kind: 'continuable' as const, subagentId: started.childId, messageId: started.messageId, skillsFound, skillsMissing }
+        }
+
+        // One-shot mode
+        const runInBackground = args.run_in_background ?? false
+
+        if (runInBackground) {
+          const jobs = ctx.get('jobs' as any)
+          if (jobs === undefined) {
+            throw new Error('team_spawn: background jobs unavailable (load @deepseek-ai/dsh-jobs)')
+          }
+          const id = jobs.start({
+            kind: 'team-subagent',
+            label,
+            owner: agent,
+            run: () => {
+              const controller = new AbortController()
+              const start = subagentsService.start(providerName, { ...request, signal: controller.signal })
+              return {
+                cancel: (reason?: string) => controller.abort(reason ?? 'background team subagent killed'),
+                done: (async () => {
+                  try {
+                    const run = await start
+                    const result = await run.result
+                    try { writeSpawnRecord(agent, run.id, { label, mode: 'one-shot', provider: providerName, role: args.role, depth: maxDepth, skills: skillNames }) } catch { /* best-effort */ }
+                    await run.dispose()
+                    return { status: 'completed', detail: JSON.stringify(result.output) }
+                  } catch (error: unknown) {
+                    return { status: 'failed', detail: String(error) }
+                  }
+                })(),
+              }
+            },
+          })
+          return { kind: 'background' as const, jobId: id }
+        }
+
+        // Foreground one-shot: wait for result
+        const run = await subagentsService.start(providerName, { ...request, signal: exec.signal })
+        try {
+          const result = await run.result
+          // Record spawn for team visibility
+          try {
+            writeSpawnRecord(agent, run.id, { label, mode: 'one-shot', provider: providerName, role: args.role, depth: maxDepth, skills: skillNames })
+          } catch { /* best-effort */ }
+          return {
+            kind: 'foreground' as const,
+            subagentId: run.id,
+            output: result.output as any,
+            stopReason: result.stopReason,
+            skillsFound,
+            skillsMissing,
+          }
+        } finally {
+          await run.dispose()
+        }
+      },
+      presentCall: (args: any) => ({
+        card: 'generic' as const,
+        title: `Spawn subagent: ${args.description}`,
+        kind: 'spawn' as const,
+      }),
+    }))
+
+    // -- team_spawn_list: list child subagents --
+
+    ctx.tools.register(_defineToolAny({
+      name: 'team_spawn_list',
+      description:
+        'List subagents spawned by this session. Returns both local spawn records '
+        + '(from .team/spawns/) and live session-backed children (from the subagent runtime). '
+        + 'Use recursive=true to list the entire descendant tree.',
+      parameters: {
+        recursive: { type: 'boolean', description: 'List all descendants (full tree) instead of just direct children (default false).' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: true,
+          properties: {
+            children: { type: 'array', items: { type: 'json' } },
+          },
+        },
+        render: (_args: any, value: any) => [{
+          type: 'text',
+          text: `${value.children.length} subagent(s): ${value.children.map((c: any) => c.id ?? c.childId).join(', ')}`,
+        }],
+      },
+      async execute(args: any, exec: any) {
+        const agent = exec.agent
+        if (!agent) throw new Error('team_spawn_list: no agent context')
+
+        // Get live children from subagent runtime
+        const liveChildren = args.recursive
+          ? await subagentsService.listDescendants(agent.session.id, exec.signal)
+          : await subagentsService.listChildren(agent.session.id, exec.signal)
+
+        // Get local spawn records
+        const localRecords = listSpawnRecords(agent)
+
+        // Merge: live children take precedence, local records fill gaps
+        const liveIds = new Set(liveChildren.map((c: any) => c.id))
+        const merged = [
+          ...liveChildren,
+          ...localRecords.filter(r => !liveIds.has(r.childId)).map(r => ({
+            id: r.childId,
+            label: r.label,
+            mode: r.mode,
+            provider: r.provider,
+            role: r.role,
+            depth: r.depth,
+            skills: r.skills,
+            spawnedAt: r.spawnedAt,
+            source: 'local-record',
+          })),
+        ]
+
+        return { children: merged }
+      },
+      presentCall: (args: any) => ({
+        card: 'generic' as const,
+        title: args.recursive ? 'List all descendant subagents' : 'List direct child subagents',
+        kind: 'list' as const,
+      }),
+    }))
+
+    // -- team_spawn_followup: send follow-up to a continuable subagent --
+
+    ctx.tools.register(_defineToolAny({
+      name: 'team_spawn_followup',
+      description:
+        'Send a follow-up message to a continuable subagent. The subagent processes '
+        + 'it as its next turn. Only the direct parent can send follow-ups. '
+        + 'Use team_spawn with mode="continuable" to create a continuable subagent first. '
+        + 'Optional skills parameter: search and inject additional skills into this follow-up message.',
+      parameters: {
+        subagentId: { type: 'string', required: true, description: 'The continuable subagent session id (from team_spawn result).' },
+        message: { type: 'string', required: true, description: 'The follow-up message content.' },
+        skills: { type: 'array', items: { type: 'string' }, description: 'Additional skill names to search and inject into this follow-up message (ephemeral).' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: true,
+          properties: {
+            messageId: { type: 'string', required: true },
+            skillsFound: { type: 'array', items: { type: 'string' } },
+            skillsMissing: { type: 'array', items: { type: 'string' } },
+          },
+        },
+        render: (_args: any, value: any) => [{
+          type: 'text',
+          text: `follow-up delivered to subagent (message id: ${value.messageId})`,
+        }],
+      },
+      async execute(args: any, exec: any) {
+        const agent = exec.agent
+        if (!agent) throw new Error('team_spawn_followup: no agent context')
+
+        const childId = assertSafeTeamId(args.subagentId, 'team_spawn_followup subagentId')
+
+        // Load skills for this follow-up (ephemeral injection)
+        const skillNames: string[] = Array.isArray(args.skills) ? args.skills : []
+        const cwd = teamCwd(agent)
+        const { prefix: skillPrefix, found: skillsFound, missing: skillsMissing } = await loadSkillsForSpawn(skillNames, cwd, exec.signal)
+
+        const fullText = skillPrefix + args.message
+        const content = [{ type: 'text', text: fullText }]
+
+        const messageId = await subagentsService.followup(agent, childId, content, {
+          signal: exec.signal,
+        })
+
+        return { messageId, skillsFound, skillsMissing }
+      },
+      presentCall: (args: any) => ({
+        card: 'generic' as const,
+        title: `Follow-up to subagent ${args.subagentId}`,
+        kind: 'message' as const,
+      }),
+    }))
+
+    // -- team_spawn_interrupt: interrupt a running subagent --
+
+    ctx.tools.register(_defineToolAny({
+      name: 'team_spawn_interrupt',
+      description:
+        'Interrupt a running continuable subagent. The subagent\'s current turn is '
+        + 'cancelled but its session state is preserved. The calling agent must be '
+        + 'the parent or an ancestor of the target subagent.',
+      parameters: {
+        subagentId: { type: 'string', required: true, description: 'The subagent session id to interrupt.' },
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: true,
+          properties: {
+            interrupted: { type: 'string', required: true },
+          },
+        },
+        render: (_args: any, value: any) => [{
+          type: 'text',
+          text: `interrupted subagent ${value.interrupted}`,
+        }],
+      },
+      async execute(args: any, exec: any) {
+        const agent = exec.agent
+        if (!agent) throw new Error('team_spawn_interrupt: no agent context')
+
+        const childId = assertSafeTeamId(args.subagentId, 'team_spawn_interrupt subagentId')
+
+        // The authority is the calling agent (parent or ancestor)
+        subagentsService.interrupt(childId, { kind: 'ancestor', agent })
+
+        return { interrupted: childId }
+      },
+      presentCall: (args: any) => ({
+        card: 'generic' as const,
+        title: `Interrupt subagent ${args.subagentId}`,
+        kind: 'interrupt' as const,
+      }),
+    }))
+
+    // -- team_spawn_skill_search: search available skills --
+
+    if (skillsService !== undefined) {
+      ctx.tools.register(_defineToolAny({
+        name: 'team_spawn_skill_search',
+        description:
+          'Search available skills from the skill registry. Returns skill names and '
+          + 'descriptions. Use the skill names with team_spawn\'s skills parameter to '
+          + 'inject skill instructions into a subagent. Skills are searched live from '
+          + 'the project, user, and bundled skill directories.',
+        parameters: {
+          query: { type: 'string', description: 'Optional filter: only return skills whose name or description contains this string.' },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: true,
+            properties: {
+              skills: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: true,
+                  properties: {
+                    name: { type: 'string', required: true },
+                    description: { type: 'string', required: true },
+                    whenToUse: { type: 'string' },
+                    source: { type: 'string' },
+                    provider: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          render: (_args: any, value: any) => [{
+            type: 'text',
+            text: value.skills.map((s: any) => `${s.name}: ${s.description}`).join('\n'),
+          }],
+        },
+        async execute(args: any, exec: any) {
+          const agent = exec.agent
+          if (!agent) throw new Error('team_spawn_skill_search: no agent context')
+
+          const cwd = teamCwd(agent)
+          const allSkills = await skillsService.list({ cwd, signal: exec.signal })
+
+          // Apply optional query filter
+          const query = args.query?.toLowerCase()
+          const filtered = query !== undefined && query.length > 0
+            ? allSkills.filter((s: any) =>
+                s.name.toLowerCase().includes(query)
+                || (s.description?.toLowerCase().includes(query))
+                || (s.whenToUse?.toLowerCase().includes(query)),
+              )
+            : allSkills
+
+          return {
+            skills: filtered.map((s: any) => ({
+              name: s.name,
+              description: s.description,
+              ...s.whenToUse !== undefined ? { whenToUse: s.whenToUse } : {},
+              source: s.source,
+              provider: s.provider,
+            })),
+          }
+        },
+        presentCall: (args: any) => ({
+          card: 'generic' as const,
+          title: args.query ? `Search skills: ${args.query}` : 'List all skills',
+          kind: 'list' as const,
+        }),
+      }))
+    } // end if (skillsService !== undefined)
+  } // end if (subagentsService !== undefined)
 }
 
 
