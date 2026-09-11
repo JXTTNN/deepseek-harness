@@ -313,7 +313,7 @@ function evaluateCondition(
   // sandboxed scope with only the provided variables; it cannot access the
   // enclosing closure or global Node APIs.
   const scope = { steps: results, context: globalContext }
-  // eslint-disable-next-line no-new-func
+  // eslint-disable-next-line typescript/no-implied-eval
   const fn = new Function('steps', 'context', `"use strict"; return (${expression});`)
   return fn(scope.steps, scope.context)
 }
