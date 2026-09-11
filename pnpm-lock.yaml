@@ -6912,18 +6912,11 @@ importers:
   packages/skill/skill-anysearch:
     dependencies:
       '@deepseek-ai/cordis':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../../vendor/cordis
       '@deepseek-ai/dsh-skill':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../skill
-    devDependencies:
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.43
-      typescript:
-        specifier: ^5.0.0
-        version: 5.9.3
 
   packages/skill/skill-badge:
     devDependencies:
@@ -6968,18 +6961,11 @@ importers:
   packages/skill/skill-memory:
     dependencies:
       '@deepseek-ai/cordis':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../../vendor/cordis
       '@deepseek-ai/dsh-skill':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../skill
-    devDependencies:
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.43
-      typescript:
-        specifier: ^5.0.0
-        version: 5.9.3
 
   packages/skill/tool-skill:
     dependencies:
@@ -11605,9 +11591,6 @@ packages:
   '@types/ms@2.1.0':
     resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
 
-  '@types/node@20.19.43':
-    resolution: {integrity: sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==}
-
   '@types/node@22.20.0':
     resolution: {integrity: sha512-QWlFW2wf3nTjC13/DqRnBpR4ZO36VJH/JVBkA/vcnmbTBNQIlnObqyqZE1tUR7+Ni23Lda8R1BxMfbXRpCUx5g==}
 
@@ -14298,11 +14281,6 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  typescript@5.9.3:
-    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
@@ -16900,10 +16878,6 @@ snapshots:
   '@types/mdurl@2.0.0': {}
 
   '@types/ms@2.1.0': {}
-
-  '@types/node@20.19.43':
-    dependencies:
-      undici-types: 6.21.0
 
   '@types/node@22.20.0':
     dependencies:
@@ -20019,8 +19993,6 @@ snapshots:
     dependencies:
       vscode-jsonrpc: 5.0.1
       vscode-languageserver-protocol: 3.18.2
-
-  typescript@5.9.3: {}
 
   typescript@6.0.3: {}
 
