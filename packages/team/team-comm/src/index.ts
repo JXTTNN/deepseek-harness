@@ -4067,6 +4067,394 @@ export function apply(ctx: Context): void {
       }))
     } // end if (skillsService !== undefined)
   } // end if (subagentsService !== undefined)
+  // ==========================================================================
+  // -- F5: Checkpointing + Resume for long-running tasks --------------------
+  //
+  // Long-running tasks can checkpoint their state to .team/checkpoints/.
+  // On crash or restart, a task can resume from its latest checkpoint.
+  // Checkpoints are immutable snapshots: save creates a new one, load restores
+  // the latest (or a specific one), and old checkpoints are auto-pruned.
+  // ==========================================================================
+
+  /** Max checkpoints per task before pruning. */
+  const MAX_CHECKPOINTS_PER_TASK = 10
+
+  ctx.tools.register(_defineToolAny({
+    name: 'team_checkpoint',
+    description:
+      'F5: Checkpointing and resume for long-running tasks. '
+      + 'Actions: save (create a checkpoint snapshot), load (restore from latest or specific checkpoint), '
+      + 'list (all checkpoints for a task), delete (remove a checkpoint). '
+      + 'Checkpoints live in .team/checkpoints/<taskId>/ and are immutable snapshots with timestamps. '
+      + 'Old checkpoints are auto-pruned to keep at most 10 per task.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['save', 'load', 'list', 'delete'], description: 'Which checkpoint operation to run.' },
+      taskId: { type: 'string', required: true, description: 'The task id to checkpoint.' },
+      state: { type: 'json', description: 'The state object to save (save action only).' },
+      checkpointId: { type: 'string', description: 'Specific checkpoint id (load/delete actions only; omit for latest).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          action: { type: 'string', required: true },
+          checkpointId: { type: 'string' },
+          state: { type: 'json' },
+          checkpoints: { type: 'array', items: { type: 'json' } },
+        },
+      },
+      render: (args: any, value: any) => [{
+        type: 'text',
+        text: args.action === 'save'
+          ? `checkpoint saved: ${value.checkpointId}`
+          : args.action === 'load'
+            ? `restored checkpoint: ${value.checkpointId}`
+            : args.action === 'list'
+              ? `${value.checkpoints?.length ?? 0} checkpoint(s)`
+              : `deleted checkpoint: ${value.checkpointId}`,
+      }],
+    },
+    async execute(args: any, exec: any) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_checkpoint: no agent context')
+      const cwd = teamCwd(agent)
+      const taskId = assertSafeTeamId(args.taskId, 'team_checkpoint taskId')
+      const ckptDir = join(cwd, TEAM_DIR, 'checkpoints', taskId)
+
+      if (args.action === 'save') {
+        mkdirSync(ckptDir, { recursive: true })
+        const ckptId = `${Date.now()}-${randomUUID().slice(0, 8)}`
+        const record = {
+          checkpointId: ckptId,
+          taskId,
+          state: args.state ?? null,
+          savedAt: Date.now(),
+          savedBy: agent.session.id,
+        }
+        const file = join(ckptDir, `${ckptId}.json`)
+        const fd = openSync(file, 'w')
+        try { writeFileSync(fd, JSON.stringify(record, null, 2)); fsyncSync(fd) } finally { closeSync(fd) }
+
+        // Auto-prune old checkpoints
+        try {
+          const files = readdirSync(ckptDir).filter(f => f.endsWith('.json')).sort()
+          if (files.length > MAX_CHECKPOINTS_PER_TASK) {
+            const toRemove = files.slice(0, files.length - MAX_CHECKPOINTS_PER_TASK)
+            for (const f of toRemove) unlinkSync(join(ckptDir, f))
+          }
+        } catch { /* best-effort prune */ }
+
+        return { action: 'save', checkpointId: ckptId }
+      }
+
+      if (args.action === 'load') {
+        if (!existsSync(ckptDir)) throw new Error(`team_checkpoint: no checkpoints for task ${taskId}`)
+        const files = readdirSync(ckptDir).filter(f => f.endsWith('.json')).sort().reverse()
+        if (files.length === 0) throw new Error(`team_checkpoint: no checkpoints for task ${taskId}`)
+
+        let targetFile: string
+        if (args.checkpointId !== undefined) {
+          targetFile = `${args.checkpointId}.json`
+          if (!existsSync(join(ckptDir, targetFile))) {
+            throw new Error(`team_checkpoint: checkpoint ${args.checkpointId} not found`)
+          }
+        } else {
+          targetFile = files[0]! // latest
+        }
+
+        const raw = readFileSync(join(ckptDir, targetFile), 'utf8')
+        const record = JSON.parse(raw)
+        return { action: 'load', checkpointId: record.checkpointId, state: record.state }
+      }
+
+      if (args.action === 'list') {
+        if (!existsSync(ckptDir)) return { action: 'list', checkpoints: [] }
+        const files = readdirSync(ckptDir).filter(f => f.endsWith('.json')).sort().reverse()
+        const checkpoints = files.map(f => {
+          try {
+            const raw = readFileSync(join(ckptDir, f), 'utf8')
+            const r = JSON.parse(raw)
+            return { checkpointId: r.checkpointId, savedAt: r.savedAt, savedBy: r.savedBy, stateSize: JSON.stringify(r.state ?? null).length }
+          } catch { return null }
+        }).filter((x): x is any => x !== null)
+        return { action: 'list', checkpoints }
+      }
+
+      if (args.action === 'delete') {
+        if (args.checkpointId === undefined) throw new Error('team_checkpoint: checkpointId required for delete')
+        const file = join(ckptDir, `${args.checkpointId}.json`)
+        if (existsSync(file)) unlinkSync(file)
+        return { action: 'delete', checkpointId: args.checkpointId }
+      }
+
+      throw new Error(`team_checkpoint: unknown action ${args.action}`)
+    },
+    presentCall: (args: any) => ({
+      card: 'generic' as const,
+      title: `Checkpoint ${args.action}: ${args.taskId}`,
+      kind: args.action === 'save' ? 'create' : args.action === 'delete' ? 'delete' : 'read',
+    }),
+  }))
+
+  // ==========================================================================
+  // -- F8: Tool Permission 4-Layer Model ------------------------------------
+  //
+  // A hierarchical permission model: deployment > role > agent > task.
+  // Each layer can allow or deny a tool. The most specific layer wins:
+  // if task-level has a rule, it overrides agent-level, which overrides
+  // role-level, which overrides deployment-level. Deny wins over allow
+  // at the same layer. Rules stored in .team/permissions/.
+  // ==========================================================================
+
+  /** Permission layers from most general to most specific. */
+  const PERMISSION_LAYERS = ['deployment', 'role', 'agent', 'task'] as const
+
+  /** Read permission rules for a layer. */
+  function readPermissionRules(cwd: string, layer: string, scope: string): Record<string, boolean> {
+    const file = join(cwd, TEAM_DIR, 'permissions', layer, `${scope}.json`)
+    if (!existsSync(file)) return {}
+    try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return {} }
+  }
+
+  /** Write permission rules for a layer. */
+  function writePermissionRules(cwd: string, layer: string, scope: string, rules: Record<string, boolean>): void {
+    const dir = join(cwd, TEAM_DIR, 'permissions', layer)
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, `${scope}.json`)
+    const fd = openSync(file, 'w')
+    try { writeFileSync(fd, JSON.stringify(rules, null, 2)); fsyncSync(fd) } finally { closeSync(fd) }
+  }
+
+  ctx.tools.register(_defineToolAny({
+    name: 'team_permission',
+    description:
+      'F8: Tool permission 4-layer model. Hierarchical: deployment > role > agent > task. '
+      + 'Most specific layer wins; deny wins over allow at the same layer. '
+      + 'Actions: set (add/update a rule), check (check if a tool is allowed for a scope), '
+      + 'list (list rules for a layer/scope), delete (remove a rule). '
+      + 'Rules stored in .team/permissions/<layer>/<scope>.json.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['set', 'check', 'list', 'delete'], description: 'Which permission operation to run.' },
+      layer: { type: 'string', enum: [...PERMISSION_LAYERS], description: 'Permission layer.' },
+      scope: { type: 'string', description: 'Scope identifier: deployment name, role name, agent session id, or task id.' },
+      tool: { type: 'string', description: 'Tool name (set/check/delete).' },
+      allow: { type: 'boolean', description: 'true=allow, false=deny (set action).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          action: { type: 'string', required: true },
+          allowed: { type: 'boolean' },
+          reason: { type: 'string' },
+          rules: { type: 'json' },
+        },
+      },
+      render: (args: any, value: any) => [{
+        type: 'text',
+        text: args.action === 'check'
+          ? `tool "${args.tool}" ${value.allowed ? 'ALLOWED' : 'DENIED'} (${value.reason})`
+          : args.action === 'list'
+            ? `${Object.keys(value.rules ?? {}).length} rule(s)`
+            : `permission ${args.action}: ${args.tool}`,
+      }],
+    },
+    async execute(args: any, exec: any) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_permission: no agent context')
+      const cwd = teamCwd(agent)
+      const layer = args.layer ?? 'deployment'
+      const scope = args.scope ?? 'default'
+
+      if (args.action === 'set') {
+        if (args.tool === undefined || args.allow === undefined) {
+          throw new Error('team_permission: tool and allow required for set')
+        }
+        const rules = readPermissionRules(cwd, layer, scope)
+        rules[args.tool] = args.allow
+        writePermissionRules(cwd, layer, scope, rules)
+        return { action: 'set', tool: args.tool, allow: args.allow }
+      }
+
+      if (args.action === 'check') {
+        if (args.tool === undefined) throw new Error('team_permission: tool required for check')
+        // Check from most specific to most general; first match wins
+        const checkScope = args.scope ?? agent.session.id
+        const layers: Array<{ layer: string; scope: string }> = [
+          { layer: 'task', scope: checkScope },
+          { layer: 'agent', scope: agent.session.id },
+          { layer: 'role', scope: checkScope },
+          { layer: 'deployment', scope: 'default' },
+        ]
+        for (const { layer: l, scope: s } of layers) {
+          const rules = readPermissionRules(cwd, l, s)
+          if (args.tool in rules) {
+            return { action: 'check', allowed: rules[args.tool], reason: `${l}/${s} rule` }
+          }
+        }
+        // No rule found: default allow
+        return { action: 'check', allowed: true, reason: 'no rule (default allow)' }
+      }
+
+      if (args.action === 'list') {
+        const rules = readPermissionRules(cwd, layer, scope)
+        return { action: 'list', rules }
+      }
+
+      if (args.action === 'delete') {
+        if (args.tool === undefined) throw new Error('team_permission: tool required for delete')
+        const rules = readPermissionRules(cwd, layer, scope)
+        delete rules[args.tool]
+        writePermissionRules(cwd, layer, scope, rules)
+        return { action: 'delete', tool: args.tool }
+      }
+
+      throw new Error(`team_permission: unknown action ${args.action}`)
+    },
+    presentCall: (args: any) => ({
+      card: 'generic' as const,
+      title: `Permission ${args.action}: ${args.layer}/${args.scope}`,
+      kind: args.action === 'set' ? 'create' : args.action === 'delete' ? 'delete' : 'read',
+    }),
+  }))
+
+  // ==========================================================================
+  // -- F11: Structured Task Output + Type Safety ----------------------------
+  //
+  // Tasks can declare output schemas (JSON Schema). When a task completes,
+  // its output is validated against the schema. Invalid output is rejected
+  // with a detailed error. Schemas stored in .team/task-schemas/.
+  // ==========================================================================
+
+  /** Simple JSON Schema validation (subset). */
+  function validateAgainstSchema(value: any, schema: any, path: string): string[] {
+    const errors: string[] = []
+    if (schema === null || typeof schema !== 'object') return errors
+
+    // type check
+    if (schema.type !== undefined) {
+      const type = schema.type
+      const actual = Array.isArray(value) ? 'array' : typeof value
+      if (type === 'array' && !Array.isArray(value)) errors.push(`${path}: expected array, got ${actual}`)
+      else if (type === 'object' && (typeof value !== 'object' || Array.isArray(value) || value === null)) errors.push(`${path}: expected object, got ${actual}`)
+      else if (type === 'string' && typeof value !== 'string') errors.push(`${path}: expected string, got ${actual}`)
+      else if (type === 'number' && typeof value !== 'number') errors.push(`${path}: expected number, got ${actual}`)
+      else if (type === 'boolean' && typeof value !== 'boolean') errors.push(`${path}: expected boolean, got ${actual}`)
+    }
+
+    // required properties
+    if (schema.type === 'object' && schema.properties !== undefined && typeof value === 'object' && value !== null) {
+      const required: string[] = Array.isArray(schema.required) ? schema.required : []
+      for (const key of required) {
+        if (!(key in value)) errors.push(`${path}.${key}: required property missing`)
+      }
+      // validate each property
+      for (const [key, propSchema] of Object.entries(schema.properties)) {
+        if (key in value) {
+          errors.push(...validateAgainstSchema(value[key], propSchema, `${path}.${key}`))
+        }
+      }
+    }
+
+    // array items
+    if (schema.type === 'array' && schema.items !== undefined && Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        errors.push(...validateAgainstSchema(value[i], schema.items, `${path}[${i}]`))
+      }
+    }
+
+    // enum
+    if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
+      errors.push(`${path}: expected one of ${JSON.stringify(schema.enum)}, got ${JSON.stringify(value)}`)
+    }
+
+    return errors
+  }
+
+  ctx.tools.register(_defineToolAny({
+    name: 'team_task_schema',
+    description:
+      'F11: Structured task output with type safety. '
+      + 'Actions: define (set output schema for a task), validate (validate output against schema), '
+      + 'get (get schema for a task), delete (remove schema). '
+      + 'Schemas are JSON Schema subsets (type, properties, required, items, enum). '
+      + 'Validation errors include field paths for easy debugging. '
+      + 'Schemas stored in .team/task-schemas/<taskId>.json.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['define', 'validate', 'get', 'delete'], description: 'Which schema operation to run.' },
+      taskId: { type: 'string', required: true, description: 'The task id.' },
+      schema: { type: 'json', description: 'JSON Schema for the task output (define action).' },
+      output: { type: 'json', description: 'The output to validate (validate action).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          action: { type: 'string', required: true },
+          valid: { type: 'boolean' },
+          errors: { type: 'array', items: { type: 'string' } },
+          schema: { type: 'json' },
+        },
+      },
+      render: (args: any, value: any) => [{
+        type: 'text',
+        text: args.action === 'validate'
+          ? value.valid ? 'output VALID' : `output INVALID: ${value.errors?.join('; ')}`
+          : args.action === 'define'
+            ? 'schema defined'
+            : args.action === 'get'
+              ? value.schema ? 'schema found' : 'no schema'
+              : 'schema deleted',
+      }],
+    },
+    async execute(args: any, exec: any) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_task_schema: no agent context')
+      const cwd = teamCwd(agent)
+      const taskId = assertSafeTeamId(args.taskId, 'team_task_schema taskId')
+      const schemaDir = join(cwd, TEAM_DIR, 'task-schemas')
+      const schemaFile = join(schemaDir, `${taskId}.json`)
+
+      if (args.action === 'define') {
+        if (args.schema === undefined) throw new Error('team_task_schema: schema required for define')
+        mkdirSync(schemaDir, { recursive: true })
+        const fd = openSync(schemaFile, 'w')
+        try { writeFileSync(fd, JSON.stringify(args.schema, null, 2)); fsyncSync(fd) } finally { closeSync(fd) }
+        return { action: 'define' }
+      }
+
+      if (args.action === 'validate') {
+        if (args.output === undefined) throw new Error('team_task_schema: output required for validate')
+        if (!existsSync(schemaFile)) {
+          // No schema = no validation needed
+          return { action: 'validate', valid: true, errors: [] }
+        }
+        const schema = JSON.parse(readFileSync(schemaFile, 'utf8'))
+        const errors = validateAgainstSchema(args.output, schema, '$')
+        return { action: 'validate', valid: errors.length === 0, errors }
+      }
+
+      if (args.action === 'get') {
+        if (!existsSync(schemaFile)) return { action: 'get', schema: undefined }
+        return { action: 'get', schema: JSON.parse(readFileSync(schemaFile, 'utf8')) }
+      }
+
+      if (args.action === 'delete') {
+        if (existsSync(schemaFile)) unlinkSync(schemaFile)
+        return { action: 'delete' }
+      }
+
+      throw new Error(`team_task_schema: unknown action ${args.action}`)
+    },
+    presentCall: (args: any) => ({
+      card: 'generic' as const,
+      title: `Task schema ${args.action}: ${args.taskId}`,
+      kind: args.action === 'define' ? 'create' : args.action === 'delete' ? 'delete' : 'read',
+    }),
+  }))
 }
 
 
