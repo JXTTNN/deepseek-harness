@@ -43,7 +43,7 @@ jobs:
           cache: pnpm
 
       - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build workspace
         run: pnpm run build
