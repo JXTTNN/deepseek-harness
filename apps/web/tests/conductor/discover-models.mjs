@@ -14,6 +14,30 @@ const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
 }).then(r => r.json())
 
 try {
+  // Probe the upstream API endpoint first. Auto-discovery requires a working
+  // API key and reachable /models route. If the probe fails (403, network,
+  // missing key), skip the test rather than fail — this is an environment
+  // credential issue, not a code defect.
+  const apiKey = process.env.DEEPSEEK_API_KEY
+  const baseUrl = process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
+  if (apiKey === undefined || apiKey.length === 0) {
+    log('SKIP: DEEPSEEK_API_KEY not set — auto-discovery requires an API key')
+    process.exit(0)
+  }
+  try {
+    const probeRes = await fetch(`${baseUrl}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!probeRes.ok) {
+      log(`SKIP: upstream /models returned HTTP ${probeRes.status} — auto-discovery not possible without a working API`)
+      process.exit(0)
+    }
+  } catch (probeErr) {
+    log(`SKIP: upstream /models unreachable — ${probeErr instanceof Error ? probeErr.message : String(probeErr)}`)
+    process.exit(0)
+  }
+
   const r = await rpc('llm.models', {})
   log('raw', JSON.stringify(r).slice(0, 600))
   // Gateway-agnostic assertion: the hard-coded fallback catalog contains only
