@@ -1,776 +1,776 @@
 /**
- * Generate `THIRD_PARTY_NOTICES.md` from  the workspace manifests: every
- * external d ependency named by a workspace `package.json` , the vendored-package
- * manifest in `vendor /README.md`, the Python `pyproject.toml` file s, and the
- * pnpm patch list. License and re pository metadata come from the installed
- *  store, so the tree must be installed. `--chec k` verifies the committed
- * artifact. Tier p olicy and ownership live in
- * `.agents/notes /implemented/process/2026-07-30-generated-thi rd-party-notices.md`.
+ * Generate `THIRD_PARTY_NOTICES.md` from the workspace manifests: every
+ * external dependency named by a workspace `package.json`, the vendored-package
+ * manifest in `vendor/README.md`, the Python `pyproject.toml` files, and the
+ * pnpm patch list. License and repository metadata come from the installed
+ * store, so the tree must be installed. `--check` verifies the committed
+ * artifact. Tier policy and ownership live in
+ * `.agents/notes/implemented/process/2026-07-30-generated-third-party-notices.md`.
  */
 
-import { existsSyn c, globSync, readdirSync, readFileSync, write FileSync } from 'node:fs'
-import { resolve }  from 'node:path'
-import * as yaml from 'js-ya ml'
-import { parse as parseToml, type TomlTab leWithoutBigInt, type TomlValueWithoutBigInt  } from 'smol-toml'
-import parseSpdx from 'spd x-expression-parse'
+import { existsSync, globSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import * as yaml from 'js-yaml'
+import { parse as parseToml, type TomlTableWithoutBigInt, type TomlValueWithoutBigInt } from 'smol-toml'
+import parseSpdx from 'spdx-expression-parse'
 
-const root = resolve(imp ort.meta.dirname, '..')
-const OUT = 'THIRD_PA RTY_NOTICES.md'
+const root = resolve(import.meta.dirname, '..')
+const OUT = 'THIRD_PARTY_NOTICES.md'
 
-/** Dependency-declaration k inds a consumer resolves at runtime. */
-const  RUNTIME_KINDS = ['dependencies', 'optionalDe pendencies'] as const
-/** All manifest sectio ns that name an external package this file mu st disclose. */
-const ALL_KINDS = ['dependenc ies', 'devDependencies', 'optionalDependencie s', 'peerDependencies'] as const
+/** Dependency-declaration kinds a consumer resolves at runtime. */
+const RUNTIME_KINDS = ['dependencies', 'optionalDependencies'] as const
+/** All manifest sections that name an external package this file must disclose. */
+const ALL_KINDS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const
 
 /**
- * Work space areas that never reach a user: reposito ry tooling and gates (the
- * root manifest),  test infrastructure, the documentation site,  the runnable
- * demo leaves, and the native l auncher's build workspace. A runtime
- * decla ration by anything outside these areas is a d isclosure-relevant
- * runtime dependency beca use any plugin package can be mounted from a  user's
+ * Workspace areas that never reach a user: repository tooling and gates (the
+ * root manifest), test infrastructure, the documentation site, the runnable
+ * demo leaves, and the native launcher's build workspace. A runtime
+ * declaration by anything outside these areas is a disclosure-relevant
+ * runtime dependency because any plugin package can be mounted from a user's
  * `cordis.yml`.
  */
-const DEV_ONLY_AR EAS = [
+const DEV_ONLY_AREAS = [
   'package.json',
-  'packages/test-su pport/',
-  'packages/test-support/client-runt ime/',
+  'packages/test-support/',
+  'packages/test-support/client-runtime/',
   'website/',
   'examples/',
-  'native /',
+  'native/',
 ] as const
 
-/** First-party public native  packages: reachable at runtime but not third -party. */
+/** First-party public native packages: reachable at runtime but not third-party. */
 const FIRST_PARTY = new Set([
-  '@ deepseek-ai/node-addon-landlock-run',
-  '@dee pseek-ai/node-addon-landlock-run-linux-arm64' ,
-  '@deepseek-ai/node-addon-landlock-run-lin ux-x64',
+  '@deepseek-ai/node-addon-landlock-run',
+  '@deepseek-ai/node-addon-landlock-run-linux-arm64',
+  '@deepseek-ai/node-addon-landlock-run-linux-x64',
 ])
 
-/** Official SDK identity covere d by the project's narrow owner authorization . */
-export const CLAUDE_AGENT_SDK_PACKAGE =  '@anthropic-ai/claude-agent-sdk'
-const CLAUDE _PLATFORM_PACKAGE_PREFIX = `${CLAUDE_AGENT_SD K_PACKAGE}-`
-const CLAUDE_PLATFORM_DECLARED_L ICENSE = 'SEE LICENSE IN LICENSE.md'
+/** Official SDK identity covered by the project's narrow owner authorization. */
+export const CLAUDE_AGENT_SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk'
+const CLAUDE_PLATFORM_PACKAGE_PREFIX = `${CLAUDE_AGENT_SDK_PACKAGE}-`
+const CLAUDE_PLATFORM_DECLARED_LICENSE = 'SEE LICENSE IN LICENSE.md'
 
 /**
- *  Whether a non-permissive runtime declaration  has an identity-scoped owner
- * authorization . This does not reclassify its terms as permi ssive.
- * @param name - exact npm package ide ntity.
- * @returns true only for the official  Claude Agent SDK package.
+ * Whether a non-permissive runtime declaration has an identity-scoped owner
+ * authorization. This does not reclassify its terms as permissive.
+ * @param name - exact npm package identity.
+ * @returns true only for the official Claude Agent SDK package.
  */
-export functio n isOwnerAuthorizedRuntime(name: string): boo lean {
-  return name === CLAUDE_AGENT_SDK_PAC KAGE
+export function isOwnerAuthorizedRuntime(name: string): boolean {
+  return name === CLAUDE_AGENT_SDK_PACKAGE
 }
 
 /**
- * Metadata overrides where the i nstalled manifest is wrong or unreachable.
- *  Each entry documents why the store cannot an swer.
+ * Metadata overrides where the installed manifest is wrong or unreachable.
+ * Each entry documents why the store cannot answer.
  */
-const OVERRIDES: Record<string, { l icense?: string; repo?: string }> = {
-  // Ru st workspaces publishing npm bins without `li cense` in package.json.
-  'oxlint': { license : 'MIT', repo: 'https://github.com/oxc-projec t/oxc' },
-  'oxlint-tsgolint': { license: 'MI T', repo: 'https://github.com/oxc-project/tsg olint' },
-  // `license: SEE LICENSE IN LICEN SE`: the servers repo is mid MIT→Apache-2.0 
-  // relicensing, so the effective terms are  per-contribution.
-  '@modelcontextprotocol/s erver-everything': { license: 'MIT / Apache-2 .0', repo: 'https://github.com/modelcontextpr otocol/servers' },
-  '@modelcontextprotocol/s erver-filesystem': { license: 'MIT / Apache-2 .0', repo: 'https://github.com/modelcontextpr otocol/servers' },
-  // No repository field i n the published manifest.
-  'node-addon-requi re-builtin': { repo: 'https://www.npmjs.com/p ackage/node-addon-require-builtin' },
+const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
+  // Rust workspaces publishing npm bins without `license` in package.json.
+  'oxlint': { license: 'MIT', repo: 'https://github.com/oxc-project/oxc' },
+  'oxlint-tsgolint': { license: 'MIT', repo: 'https://github.com/oxc-project/tsgolint' },
+  // `license: SEE LICENSE IN LICENSE`: the servers repo is mid MIT→Apache-2.0
+  // relicensing, so the effective terms are per-contribution.
+  '@modelcontextprotocol/server-everything': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
+  '@modelcontextprotocol/server-filesystem': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
+  // No repository field in the published manifest.
+  'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
 }
 
 /**
-  * Python dependencies are few and named dire ctly in `pyproject.toml` files
- * without ins talled metadata to harvest, so license/repo a re recorded here and
- * the generator fails w hen a manifest names a package this map misse s.
+ * Python dependencies are few and named directly in `pyproject.toml` files
+ * without installed metadata to harvest, so license/repo are recorded here and
+ * the generator fails when a manifest names a package this map misses.
  */
-const PYTHON_METADATA: Record<string,  { license: string; repo: string; role: string  }> = {
-  pydantic: { license: 'MIT', repo: ' https://github.com/pydantic/pydantic', role:  'runtime dependency of `deepseek-harness-sdk` ' },
-  hatchling: { license: 'MIT', repo: 'ht tps://github.com/pypa/hatch', role: 'build ba ckend' },
-  pytest: { license: 'MIT', repo: ' https://github.com/pytest-dev/pytest', role:  'test-only' },
+const PYTHON_METADATA: Record<string, { license: string; repo: string; role: string }> = {
+  pydantic: { license: 'MIT', repo: 'https://github.com/pydantic/pydantic', role: 'runtime dependency of `deepseek-harness-sdk`' },
+  hatchling: { license: 'MIT', repo: 'https://github.com/pypa/hatch', role: 'build backend' },
+  pytest: { license: 'MIT', repo: 'https://github.com/pytest-dev/pytest', role: 'test-only' },
+  numpy: { license: 'BSD-3-Clause', repo: 'https://github.com/numpy/numpy', role: 'runtime dependency of deepseek-harness-sdk' },
 }
 
-type PythonMetadata = typeo f PYTHON_METADATA
+type PythonMetadata = typeof PYTHON_METADATA
 
-/** Tools fetched by scrip ts at build time, keyed by the pin the script  owns. */
+/** Tools fetched by scripts at build time, keyed by the pin the script owns. */
 const BUILD_TIME_TOOLS = [
   {
-     name: '@yao-pkg/pkg',
+    name: '@yao-pkg/pkg',
     license: 'MIT',
-     repo: 'https://github.com/yao-pkg/pkg',
-     role: 'invoked by `scripts/build-exe-for-pyth on-sdk.ts` to assemble the single-file SDK ru ntime executable',
-    pinSource: 'scripts/bu ild-exe-for-python-sdk.ts',
+    repo: 'https://github.com/yao-pkg/pkg',
+    role: 'invoked by `scripts/build-exe-for-python-sdk.ts` to assemble the single-file SDK runtime executable',
+    pinSource: 'scripts/build-exe-for-python-sdk.ts',
   },
 ]
 
-/** The ` package.json` fields this generator reads. */ 
+/** The `package.json` fields this generator reads. */
 export interface Manifest {
   name?: string
-   version?: string
+  version?: string
   private?: boolean
-  lice nse?: string
-  dependencies?: Record<string,  string>
-  devDependencies?: Record<string, st ring>
-  optionalDependencies?: Record<string,  string>
-  peerDependencies?: Record<string,  string>
+  license?: string
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
 }
 
-/** One disclosed external npm dep endency. */
+/** One disclosed external npm dependency. */
 interface ExternalDep {
-  name: s tring
+  name: string
   license: string
   repo: string
-  /**  True when some shipped workspace consumer rea ches it through runtime dependency edges. */
-   runtime: boolean
+  /** True when some shipped workspace consumer reaches it through runtime dependency edges. */
+  runtime: boolean
 }
 
-/** Read and parse a wo rkspace-relative `package.json`. */
-function  readManifest(rel: string): Manifest {
-  retur n JSON.parse(readFileSync(resolve(root, rel),  'utf8')) as Manifest
+/** Read and parse a workspace-relative `package.json`. */
+function readManifest(rel: string): Manifest {
+  return JSON.parse(readFileSync(resolve(root, rel), 'utf8')) as Manifest
 }
 
 /**
- * Manifest glob s, derived from the workspace declarations ra ther than listed
- * here, so a new member are a (`tools/*`) is read the day it is declared. 
- * @returns one glob per manifest-bearing lo cation, repository-relative.
+ * Manifest globs, derived from the workspace declarations rather than listed
+ * here, so a new member area (`tools/*`) is read the day it is declared.
+ * @returns one glob per manifest-bearing location, repository-relative.
  */
-export funct ion manifestPatterns(rootMembers: readonly st ring[]): string[] {
+export function manifestPatterns(rootMembers: readonly string[]): string[] {
   return [
-    'package.j son',
-    ...rootMembers.map(member => `${mem ber}/package.json`),
-    // The demo leaves j oin the workspace through `examples/package.j son`, so
-    // their own manifests are membe rs of nothing and no glob above reaches them. 
+    'package.json',
+    ...rootMembers.map(member => `${member}/package.json`),
+    // The demo leaves join the workspace through `examples/package.json`, so
+    // their own manifests are members of nothing and no glob above reaches them.
     'examples/*/package.json',
   ]
 }
 
-/** Th e `packages:` member globs declared by one pn pm workspace file. */
-function workspaceMembe rs(rel: string): string[] {
-  const declared  = (yaml.load(readFileSync(resolve(root, rel),  'utf8')) as { packages?: unknown }).packages 
-  if (!Array.isArray(declared) || declared.l ength === 0) {
-    throw new Error(`gen-third -party-notices: ${rel} declares no workspace  members; the manifest set cannot be derived.` )
+/** The `packages:` member globs declared by one pnpm workspace file. */
+function workspaceMembers(rel: string): string[] {
+  const declared = (yaml.load(readFileSync(resolve(root, rel), 'utf8')) as { packages?: unknown }).packages
+  if (!Array.isArray(declared) || declared.length === 0) {
+    throw new Error(`gen-third-party-notices: ${rel} declares no workspace members; the manifest set cannot be derived.`)
   }
-  return declared.map(member => String( member))
+  return declared.map(member => String(member))
 }
 
 /**
- * Every workspace manifest,  keyed by repository-relative path, plus the s et of
- * workspace package names. Paths are n ormalized to `/` at ingestion: Node's
- * `fs. globSync` returns OS-native separators, and t he area matching in
- * `tierExternalDeps` com pares `/`-suffixed prefixes, so Windows backs lashes
- * would silently push dev-area manife sts into the runtime tier.
+ * Every workspace manifest, keyed by repository-relative path, plus the set of
+ * workspace package names. Paths are normalized to `/` at ingestion: Node's
+ * `fs.globSync` returns OS-native separators, and the area matching in
+ * `tierExternalDeps` compares `/`-suffixed prefixes, so Windows backslashes
+ * would silently push dev-area manifests into the runtime tier.
  */
-function loadW orkspaceManifests(): { manifests: Map<string,  Manifest>; names: Set<string> } {
-  const pa tterns = manifestPatterns(workspaceMembers('p npm-workspace.yaml'))
-  const manifests = new  Map<string, Manifest>()
-  const names = new  Set<string>()
-  for (const pattern of pattern s) {
-    for (const path of globSync(pattern,  { cwd: root })) {
-      const normalized = p ath.replaceAll('\\', '/')
-      const manifes t = readManifest(normalized)
-      manifests. set(normalized, manifest)
-      if (manifest. name !== undefined) names.add(manifest.name)
-     }
+function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Set<string> } {
+  const patterns = manifestPatterns(workspaceMembers('pnpm-workspace.yaml'))
+  const manifests = new Map<string, Manifest>()
+  const names = new Set<string>()
+  for (const pattern of patterns) {
+    for (const path of globSync(pattern, { cwd: root })) {
+      const normalized = path.replaceAll('\\', '/')
+      const manifest = readManifest(normalized)
+      manifests.set(normalized, manifest)
+      if (manifest.name !== undefined) names.add(manifest.name)
+    }
   }
-  if (manifests.size < 100) throw n ew Error(`gen-third-party-notices: only ${man ifests.size} workspace manifests found; the g lob set is stale.`)
-  return { manifests, nam es }
+  if (manifests.size < 100) throw new Error(`gen-third-party-notices: only ${manifests.size} workspace manifests found; the glob set is stale.`)
+  return { manifests, names }
 }
 
 type VirtualManifest = Manifest & {
-   claudeCodeVersion?: string
-  license?: strin g
+  claudeCodeVersion?: string
+  license?: string
   repository?: string | { url?: string }
-   homepage?: string
+  homepage?: string
 }
 
-/** One platform payload  declared by the official Claude Agent SDK. * /
+/** One platform payload declared by the official Claude Agent SDK. */
 export interface ClaudePlatformPayload {
-   readonly name: string
-  readonly version: str ing
+  readonly name: string
+  readonly version: string
 }
 
-/** Current SDK and CLI distribution f acts derived from the installed SDK manifest.  */
+/** Current SDK and CLI distribution facts derived from the installed SDK manifest. */
 export interface ClaudeDistribution {
-  r eadonly sdkVersion: string
-  readonly claudeC odeVersion: string
-  readonly payloads: Claud ePlatformPayload[]
+  readonly sdkVersion: string
+  readonly claudeCodeVersion: string
+  readonly payloads: ClaudePlatformPayload[]
 }
 
-function requiredManife stString(
+function requiredManifestString(
   value: string | undefined,
-  fiel d: string,
+  field: string,
 ): string {
-  if (value === undefi ned || value.length === 0) {
-    throw new Er ror(`gen-third-party-notices: ${CLAUDE_AGENT_ SDK_PACKAGE} has no ${field}.`)
+  if (value === undefined || value.length === 0) {
+    throw new Error(`gen-third-party-notices: ${CLAUDE_AGENT_SDK_PACKAGE} has no ${field}.`)
   }
-  return  value
+  return value
 }
 
 /**
- * Derive the official platform  payload set without a version or platform
- *  allowlist. Only identities in the SDK's own p ackage namespace are covered.
- * @param manif est - installed official SDK manifest.
- * @re turns current SDK, CLI, and optional platform  payload facts.
+ * Derive the official platform payload set without a version or platform
+ * allowlist. Only identities in the SDK's own package namespace are covered.
+ * @param manifest - installed official SDK manifest.
+ * @returns current SDK, CLI, and optional platform payload facts.
  */
-export function claudeDis tributionFromManifest(
-  manifest: VirtualMan ifest,
+export function claudeDistributionFromManifest(
+  manifest: VirtualManifest,
 ): ClaudeDistribution {
-  if (manifest .name !== CLAUDE_AGENT_SDK_PACKAGE) {
-    thr ow new Error(
-      `gen-third-party-notices:  expected ${CLAUDE_AGENT_SDK_PACKAGE} manifes t, got ${JSON.stringify(manifest.name)}.`,
-     )
-  }
-  const sdkVersion = requiredManifest String(manifest.version, 'version')
-  const c laudeCodeVersion = requiredManifestString(
-     manifest.claudeCodeVersion,
-    'claudeCode Version',
-  )
-  const entries = Object.entrie s(manifest.optionalDependencies ?? {})
-  if ( entries.length === 0) {
+  if (manifest.name !== CLAUDE_AGENT_SDK_PACKAGE) {
     throw new Error(
-       `gen-third-party-notices: ${CLAUDE_AGEN T_SDK_PACKAGE} declares no optional platform  payloads.`,
+      `gen-third-party-notices: expected ${CLAUDE_AGENT_SDK_PACKAGE} manifest, got ${JSON.stringify(manifest.name)}.`,
     )
   }
-  const payloads = entr ies.map(([name, version]) => {
-    if (!name. startsWith(CLAUDE_PLATFORM_PACKAGE_PREFIX)) { 
+  const sdkVersion = requiredManifestString(manifest.version, 'version')
+  const claudeCodeVersion = requiredManifestString(
+    manifest.claudeCodeVersion,
+    'claudeCodeVersion',
+  )
+  const entries = Object.entries(manifest.optionalDependencies ?? {})
+  if (entries.length === 0) {
+    throw new Error(
+      `gen-third-party-notices: ${CLAUDE_AGENT_SDK_PACKAGE} declares no optional platform payloads.`,
+    )
+  }
+  const payloads = entries.map(([name, version]) => {
+    if (!name.startsWith(CLAUDE_PLATFORM_PACKAGE_PREFIX)) {
       throw new Error(
-        `gen-third-pa rty-notices: ${CLAUDE_AGENT_SDK_PACKAGE} opti onal dependency ${name} is outside its author ized platform-payload identity.`,
+        `gen-third-party-notices: ${CLAUDE_AGENT_SDK_PACKAGE} optional dependency ${name} is outside its authorized platform-payload identity.`,
       )
-     }
+    }
     return {
       name,
-      version: re quiredManifestString(version, `${name} option al dependency version`),
+      version: requiredManifestString(version, `${name} optional dependency version`),
     }
-  }).sort((lef t, right) => left.name.localeCompare(right.na me))
-  return { sdkVersion, claudeCodeVersion , payloads }
+  }).sort((left, right) => left.name.localeCompare(right.name))
+  return { sdkVersion, claudeCodeVersion, payloads }
 }
 
 /**
- * Resolve one package's  manifest inside a pnpm virtual store. The pre fix scan
- * matches ordinary `@scope+name@ver sion` directory names; pnpm 11 truncates
- * l ong names (a peer-suffixed name past the leng th limit becomes
- * `<prefix>_<hash>`), so a  content scan falls back over the whole store  when
+ * Resolve one package's manifest inside a pnpm virtual store. The prefix scan
+ * matches ordinary `@scope+name@version` directory names; pnpm 11 truncates
+ * long names (a peer-suffixed name past the length limit becomes
+ * `<prefix>_<hash>`), so a content scan falls back over the whole store when
  * the prefix misses.
  *
- * @param virtu al - the `.pnpm` virtual store directory to s can.
- * @param name - the external package na me, exactly as `node_modules` spells it.
- * @ returns the parsed manifest, or `undefined` w hen neither the prefix match
- *   nor the con tent scan finds the package's `package.json`. 
+ * @param virtual - the `.pnpm` virtual store directory to scan.
+ * @param name - the external package name, exactly as `node_modules` spells it.
+ * @returns the parsed manifest, or `undefined` when neither the prefix match
+ *   nor the content scan finds the package's `package.json`.
  */
-export function virtualManifest(virtual:  string, name: string): VirtualManifest | und efined {
-  const prefix = `${name.replace('/' , '+')}@`
-  const entry = readdirSync(virtual ).find(dir => dir.startsWith(prefix))
-  if (e ntry !== undefined) {
-    return JSON.parse(r eadFileSync(resolve(virtual, entry, 'node_mod ules', name, 'package.json'), 'utf8')) as Vir tualManifest
+export function virtualManifest(virtual: string, name: string): VirtualManifest | undefined {
+  const prefix = `${name.replace('/', '+')}@`
+  const entry = readdirSync(virtual).find(dir => dir.startsWith(prefix))
+  if (entry !== undefined) {
+    return JSON.parse(readFileSync(resolve(virtual, entry, 'node_modules', name, 'package.json'), 'utf8')) as VirtualManifest
   }
-  for (const dir of readdirS ync(virtual)) {
-    const candidate = resolve (virtual, dir, 'node_modules', name, 'package .json')
+  for (const dir of readdirSync(virtual)) {
+    const candidate = resolve(virtual, dir, 'node_modules', name, 'package.json')
     if (existsSync(candidate)) {
-       return JSON.parse(readFileSync(candidate, ' utf8')) as VirtualManifest
+      return JSON.parse(readFileSync(candidate, 'utf8')) as VirtualManifest
     }
   }
-  return  undefined
+  return undefined
 }
 
-/** Resolve one installed exter nal package manifest from either pnpm store.  */
-function installedManifest(name: string):  VirtualManifest | undefined {
-  let manifest:  (Manifest & { license?: string; repository?:  string | { url?: string }; homepage?: string  }) | undefined
-  // Workspace-local link far ms can expose a dependency that is not linked  at
-  // the repository root; both are backed  by the root workspace's lockfile.
-  for (con st store of ['node_modules', 'native/landlock -run/node_modules']) {
-    const direct = res olve(root, store, name, 'package.json')
-    i f (existsSync(direct)) {
-      manifest = JSO N.parse(readFileSync(direct, 'utf8')) as type of manifest
+/** Resolve one installed external package manifest from either pnpm store. */
+function installedManifest(name: string): VirtualManifest | undefined {
+  let manifest: (Manifest & { license?: string; repository?: string | { url?: string }; homepage?: string }) | undefined
+  // Workspace-local link farms can expose a dependency that is not linked at
+  // the repository root; both are backed by the root workspace's lockfile.
+  for (const store of ['node_modules', 'native/landlock-run/node_modules']) {
+    const direct = resolve(root, store, name, 'package.json')
+    if (existsSync(direct)) {
+      manifest = JSON.parse(readFileSync(direct, 'utf8')) as typeof manifest
       break
     }
-    const virtu al = resolve(root, store, '.pnpm')
-    if (!e xistsSync(virtual)) continue
-    manifest = v irtualManifest(virtual, name)
-    if (manifes t !== undefined) break
+    const virtual = resolve(root, store, '.pnpm')
+    if (!existsSync(virtual)) continue
+    manifest = virtualManifest(virtual, name)
+    if (manifest !== undefined) break
   }
   return manifest
- }
+}
 
-/** License and repository URL for an inst alled external package, from the pnpm store.  */
-function installedMetadata(name: string):  { license: string; repo: string } {
-  const o verride = OVERRIDES[name]
-  const manifest =  installedManifest(name)
-  const license = ove rride?.license ?? manifest?.license
-  const r awRepo = typeof manifest?.repository === 'str ing' ? manifest.repository : manifest?.reposi tory?.url ?? manifest?.homepage
-  const repo  = override?.repo ?? normalizeRepo(rawRepo)
-   if (license === undefined || repo === undefin ed) {
-    throw new Error(`gen-third-party-no tices: cannot resolve ${license === undefined  ? 'license' : 'repository'} for ${name}; run  \`pnpm install\`, or add an OVERRIDES entry. `)
+/** License and repository URL for an installed external package, from the pnpm store. */
+function installedMetadata(name: string): { license: string; repo: string } {
+  const override = OVERRIDES[name]
+  const manifest = installedManifest(name)
+  const license = override?.license ?? manifest?.license
+  const rawRepo = typeof manifest?.repository === 'string' ? manifest.repository : manifest?.repository?.url ?? manifest?.homepage
+  const repo = override?.repo ?? normalizeRepo(rawRepo)
+  if (license === undefined || repo === undefined) {
+    throw new Error(`gen-third-party-notices: cannot resolve ${license === undefined ? 'license' : 'repository'} for ${name}; run \`pnpm install\`, or add an OVERRIDES entry.`)
   }
   return { license, repo }
 }
 
-function  collectClaudeDistribution(): ClaudeDistribut ion {
-  const manifest = installedManifest(CL AUDE_AGENT_SDK_PACKAGE)
-  if (manifest === un defined) {
+function collectClaudeDistribution(): ClaudeDistribution {
+  const manifest = installedManifest(CLAUDE_AGENT_SDK_PACKAGE)
+  if (manifest === undefined) {
     throw new Error(
-      `gen-th ird-party-notices: cannot resolve ${CLAUDE_AG ENT_SDK_PACKAGE}; run \`pnpm install\`.`,
-     )
-  }
-  const distribution = claudeDistribut ionFromManifest(manifest)
-  let installedPayl oads = 0
-  for (const payload of distribution .payloads) {
-    const installed = installedM anifest(payload.name)
-    if (installed === u ndefined) continue
-    installedPayloads += 1 
-    if (
-      installed.name !== payload.na me
-      || installed.version !== payload.ver sion
-      || installed.license !== CLAUDE_PL ATFORM_DECLARED_LICENSE
-    ) {
-      throw n ew Error(
-        `gen-third-party-notices: i nstalled ${payload.name} does not match its S DK-declared version and ${CLAUDE_PLATFORM_DEC LARED_LICENSE} license field.`,
-      )
-    } 
-  }
-  if (installedPayloads === 0) {
-    thr ow new Error(
-      'gen-third-party-notices:  no SDK-declared Claude platform payload is i nstalled; install optional dependencies befor e regenerating.',
+      `gen-third-party-notices: cannot resolve ${CLAUDE_AGENT_SDK_PACKAGE}; run \`pnpm install\`.`,
     )
   }
-  return distribu tion
+  const distribution = claudeDistributionFromManifest(manifest)
+  let installedPayloads = 0
+  for (const payload of distribution.payloads) {
+    const installed = installedManifest(payload.name)
+    if (installed === undefined) continue
+    installedPayloads += 1
+    if (
+      installed.name !== payload.name
+      || installed.version !== payload.version
+      || installed.license !== CLAUDE_PLATFORM_DECLARED_LICENSE
+    ) {
+      throw new Error(
+        `gen-third-party-notices: installed ${payload.name} does not match its SDK-declared version and ${CLAUDE_PLATFORM_DECLARED_LICENSE} license field.`,
+      )
+    }
+  }
+  if (installedPayloads === 0) {
+    throw new Error(
+      'gen-third-party-notices: no SDK-declared Claude platform payload is installed; install optional dependencies before regenerating.',
+    )
+  }
+  return distribution
 }
 
-/** Normalize a manifest repository/h omepage value to a browsable https URL. */
-fu nction normalizeRepo(raw: string | undefined) : string | undefined {
-  if (raw === undefine d || raw === '') return undefined
-  let url =  raw
-    .replace(/^git\+ssh:\/\/git@/, 'http s://')
+/** Normalize a manifest repository/homepage value to a browsable https URL. */
+function normalizeRepo(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === '') return undefined
+  let url = raw
+    .replace(/^git\+ssh:\/\/git@/, 'https://')
     .replace(/^git\+/, '')
-    .replac e(/^git:\/\//, 'https://')
-    .replace(/^git hub:/, 'https://github.com/')
-    .replace(/\ .git$/, '')
-  if (!url.startsWith('http')) ur l = `https://github.com/${url}`
+    .replace(/^git:\/\//, 'https://')
+    .replace(/^github:/, 'https://github.com/')
+    .replace(/\.git$/, '')
+  if (!url.startsWith('http')) url = `https://github.com/${url}`
   return url
- }
-
-/**
- * External npm dependencies, tiered b y which workspace area declares them at
- * ru ntime: a package is runtime when any manifest  outside `DEV_ONLY_AREAS`
- * names it in `dep endencies`/`optionalDependencies`. A package  declared only
- * by tooling, test infrastruct ure, the website, or the demo leaves — what ever
- * the declaring section is called — i s development-only.
- */
-function collectNpmDe ps(): ExternalDep[] {
-  const { manifests, na mes } = loadWorkspaceManifests()
-  return [.. .tierExternalDeps(manifests, names)]
-    .fil ter(([name]) => !FIRST_PARTY.has(name))
-    . sort(([a], [b]) => a.localeCompare(b))
-    .m ap(([name, runtime]) => ({ name, ...installed Metadata(name), runtime }))
 }
 
 /**
- * Tier ev ery external dependency the workspace declare s.
- * @param manifests - workspace manifests  keyed by repository-relative path.
- * @param  names - every workspace package name, which n ever counts as external.
- * @returns each ext ernal package mapped to whether it is a runti me dependency.
+ * External npm dependencies, tiered by which workspace area declares them at
+ * runtime: a package is runtime when any manifest outside `DEV_ONLY_AREAS`
+ * names it in `dependencies`/`optionalDependencies`. A package declared only
+ * by tooling, test infrastructure, the website, or the demo leaves — whatever
+ * the declaring section is called — is development-only.
  */
-export function tierExtern alDeps(manifests: Map<string, Manifest>, name s: Set<string>): Map<string, boolean> {
-  con st tiers = new Map<string, boolean>()
-  // `t sx` is runtime by fiat: the root source-run s cripts execute through its ESM hook.
-  tiers. set('tsx', true)
-  for (const [path, manifest ] of manifests) {
-    const devOnly = DEV_ONL Y_AREAS.some(area => (area.endsWith('/') ? pa th.startsWith(area) : path === area))
-    for  (const kind of ALL_KINDS) {
-      for (const  [dep, range] of Object.entries(manifest[kind ] ?? {})) {
-        if (names.has(dep) || ran ge.startsWith('workspace:')) continue
-         const runtime = !devOnly && (RUNTIME_KINDS a s readonly string[]).includes(kind)
-        t iers.set(dep, (tiers.get(dep) ?? false) || ru ntime)
+function collectNpmDeps(): ExternalDep[] {
+  const { manifests, names } = loadWorkspaceManifests()
+  return [...tierExternalDeps(manifests, names)]
+    .filter(([name]) => !FIRST_PARTY.has(name))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, runtime]) => ({ name, ...installedMetadata(name), runtime }))
+}
+
+/**
+ * Tier every external dependency the workspace declares.
+ * @param manifests - workspace manifests keyed by repository-relative path.
+ * @param names - every workspace package name, which never counts as external.
+ * @returns each external package mapped to whether it is a runtime dependency.
+ */
+export function tierExternalDeps(manifests: Map<string, Manifest>, names: Set<string>): Map<string, boolean> {
+  const tiers = new Map<string, boolean>()
+  // `tsx` is runtime by fiat: the root source-run scripts execute through its ESM hook.
+  tiers.set('tsx', true)
+  for (const [path, manifest] of manifests) {
+    const devOnly = DEV_ONLY_AREAS.some(area => (area.endsWith('/') ? path.startsWith(area) : path === area))
+    for (const kind of ALL_KINDS) {
+      for (const [dep, range] of Object.entries(manifest[kind] ?? {})) {
+        if (names.has(dep) || range.startsWith('workspace:')) continue
+        const runtime = !devOnly && (RUNTIME_KINDS as readonly string[]).includes(kind)
+        tiers.set(dep, (tiers.get(dep) ?? false) || runtime)
       }
     }
   }
   return tiers
 }
 
-/* * A vendored package row parsed out of the `v endor/README.md` manifest table. */
-export in terface VendoredRow {
+/** A vendored package row parsed out of the `vendor/README.md` manifest table. */
+export interface VendoredRow {
   npmName: string
-  /**  The name this package carries upstream; MIT  attribution names the fork's origin, not our  scope. */
+  /** The name this package carries upstream; MIT attribution names the fork's origin, not our scope. */
   upstreamName: string
-  upstream:  string
+  upstream: string
 }
 
 /**
- * Parse the vendored-package m anifest table out of `vendor/README.md`.
- * @ param text - the complete `vendor/README.md`  contents.
- * @returns one row per manifest-ta ble entry, in table order.
+ * Parse the vendored-package manifest table out of `vendor/README.md`.
+ * @param text - the complete `vendor/README.md` contents.
+ * @returns one row per manifest-table entry, in table order.
  */
-export functio n parseVendoredRows(text: string): VendoredRo w[] {
+export function parseVendoredRows(text: string): VendoredRow[] {
   const rows: VendoredRow[] = []
-  for  (const line of text.split('\n')) {
-    const  match = new RegExp(String.raw`^\| \x60\S+\/\x 60 \| \x60([^\x60]+)\x60 \| \x60([^\x60]+)\x6 0 \| \S+ \| `
-      + String.raw`(https:\/\/\ S+?)(?: \([^)]*\))? \| \x60[0-9a-f]+\x60 \|$` ).exec(line)
-    if (match === null) continue 
-    const [, npmName, upstreamName, upstream ] = match
-    if (npmName === undefined || up streamName === undefined || upstream === unde fined) continue
-    rows.push({ npmName, upst reamName, upstream })
+  for (const line of text.split('\n')) {
+    const match = new RegExp(String.raw`^\| \x60\S+\/\x60 \| \x60([^\x60]+)\x60 \| \x60([^\x60]+)\x60 \| \S+ \| `
+      + String.raw`(https:\/\/\S+?)(?: \([^)]*\))? \| \x60[0-9a-f]+\x60 \|$`).exec(line)
+    if (match === null) continue
+    const [, npmName, upstreamName, upstream] = match
+    if (npmName === undefined || upstreamName === undefined || upstream === undefined) continue
+    rows.push({ npmName, upstreamName, upstream })
   }
   return rows
 }
 
-/* *
- * Parse the vendored manifest table and co nfirm it accounts for every vendored
- * direc tory. The `vendor/` tree — not the table � � is the set that must be
- * disclosed, so a  row that stops matching the table format is a  hard error
- * rather than a package that qui etly vanishes from the notices.
+/**
+ * Parse the vendored manifest table and confirm it accounts for every vendored
+ * directory. The `vendor/` tree — not the table — is the set that must be
+ * disclosed, so a row that stops matching the table format is a hard error
+ * rather than a package that quietly vanishes from the notices.
  */
-function  collectVendored(): VendoredRow[] {
-  const ro ws = parseVendoredRows(readFileSync(resolve(r oot, 'vendor/README.md'), 'utf8'))
-  const on Disk = new Map<string, string>()
-  for (const  entry of readdirSync(resolve(root, 'vendor') , { withFileTypes: true })) {
-    if (!entry. isDirectory()) continue
-    const manifest =  readManifest(`vendor/${entry.name}/package.js on`)
-    if (manifest.name !== undefined) onD isk.set(manifest.name, entry.name)
+function collectVendored(): VendoredRow[] {
+  const rows = parseVendoredRows(readFileSync(resolve(root, 'vendor/README.md'), 'utf8'))
+  const onDisk = new Map<string, string>()
+  for (const entry of readdirSync(resolve(root, 'vendor'), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const manifest = readManifest(`vendor/${entry.name}/package.json`)
+    if (manifest.name !== undefined) onDisk.set(manifest.name, entry.name)
   }
 
-  con st parsed = new Set(rows.map(row => row.npmNa me))
-  const missing = [...onDisk.keys()].fil ter(name => !parsed.has(name))
-  if (missing. length > 0) {
-    throw new Error(`gen-third- party-notices: vendor/README.md has no manife st-table row for ${missing.join(', ')}; its t able format changed or the sync is incomplete .`)
+  const parsed = new Set(rows.map(row => row.npmName))
+  const missing = [...onDisk.keys()].filter(name => !parsed.has(name))
+  if (missing.length > 0) {
+    throw new Error(`gen-third-party-notices: vendor/README.md has no manifest-table row for ${missing.join(', ')}; its table format changed or the sync is incomplete.`)
   }
   for (const row of rows) {
-    const  dir = onDisk.get(row.npmName)
-    if (dir == = undefined) throw new Error(`gen-third-party -notices: vendored package ${row.npmName} fro m vendor/README.md has no vendor/ directory.` )
-    const license = readManifest(`vendor/${ dir}/package.json`).license
-    if (license ! == 'MIT') {
-      throw new Error(`gen-third- party-notices: vendored ${row.npmName} declar es license ${JSON.stringify(license)}; the ve ndored section assumes MIT throughout.`)
-     }
+    const dir = onDisk.get(row.npmName)
+    if (dir === undefined) throw new Error(`gen-third-party-notices: vendored package ${row.npmName} from vendor/README.md has no vendor/ directory.`)
+    const license = readManifest(`vendor/${dir}/package.json`).license
+    if (license !== 'MIT') {
+      throw new Error(`gen-third-party-notices: vendored ${row.npmName} declares license ${JSON.stringify(license)}; the vendored section assumes MIT throughout.`)
+    }
   }
   return rows
 }
 
-/** Whether a parsed T OML value is a table rather than an array or  scalar. */
-function isTomlTable(value: TomlVa lueWithoutBigInt | undefined): value is TomlT ableWithoutBigInt {
-  return value !== undefi ned && typeof value === 'object' && !Array.is Array(value)
+/** Whether a parsed TOML value is a table rather than an array or scalar. */
+function isTomlTable(value: TomlValueWithoutBigInt | undefined): value is TomlTableWithoutBigInt {
+  return value !== undefined && typeof value === 'object' && !Array.isArray(value)
 }
 
-/** Parse one PEP 508 require ment string into its distribution name. */
-fu nction parsePythonRequirement(requirement: st ring): string {
-  const name = /^\s*([a-zA-Z] [a-zA-Z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=! ~;@].*)?$/.exec(requirement)?.[1]
-  if (name  === undefined) {
-    throw new Error(`gen-thi rd-party-notices: cannot read a distribution  name from the requirement ${JSON.stringify(re quirement)}.`)
+/** Parse one PEP 508 requirement string into its distribution name. */
+function parsePythonRequirement(requirement: string): string {
+  const name = /^\s*([a-zA-Z][a-zA-Z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=!~;@].*)?$/.exec(requirement)?.[1]
+  if (name === undefined) {
+    throw new Error(`gen-third-party-notices: cannot read a distribution name from the requirement ${JSON.stringify(requirement)}.`)
   }
   return name
 }
 
-/** Add t he string requirements from one parsed TOML a rray. */
-function collectPythonRequirementArr ay(
+/** Add the string requirements from one parsed TOML array. */
+function collectPythonRequirementArray(
   names: string[],
-  value: TomlValueWith outBigInt | undefined,
+  value: TomlValueWithoutBigInt | undefined,
   location: string,
-   allowGroupIncludes = false,
+  allowGroupIncludes = false,
 ): void {
-  if (v alue === undefined) return
-  if (!Array.isArr ay(value)) {
-    throw new Error(`gen-third-p arty-notices: ${location} must be an array.`) 
+  if (value === undefined) return
+  if (!Array.isArray(value)) {
+    throw new Error(`gen-third-party-notices: ${location} must be an array.`)
   }
   for (const item of value) {
-    if (ty peof item === 'string') {
-      names.push(pa rsePythonRequirement(item))
+    if (typeof item === 'string') {
+      names.push(parsePythonRequirement(item))
       continue
-     }
-    if (allowGroupIncludes && isTomlTable (item) && typeof item['include-group'] === 's tring' && Object.keys(item).length === 1) {
-       continue
     }
-    throw new Error(`gen- third-party-notices: ${location} contains an  unsupported requirement entry.`)
+    if (allowGroupIncludes && isTomlTable(item) && typeof item['include-group'] === 'string' && Object.keys(item).length === 1) {
+      continue
+    }
+    throw new Error(`gen-third-party-notices: ${location} contains an unsupported requirement entry.`)
   }
 }
 
-/** R ead an optional TOML table and reject a prese nt non-table value. */
-function optionalTomlT able(value: TomlValueWithoutBigInt | undefine d, location: string): TomlTableWithoutBigInt  | undefined {
-  if (value === undefined || is TomlTable(value)) return value
-  throw new Er ror(`gen-third-party-notices: ${location} mus t be a table.`)
+/** Read an optional TOML table and reject a present non-table value. */
+function optionalTomlTable(value: TomlValueWithoutBigInt | undefined, location: string): TomlTableWithoutBigInt | undefined {
+  if (value === undefined || isTomlTable(value)) return value
+  throw new Error(`gen-third-party-notices: ${location} must be a table.`)
 }
 
 /**
- * Parse a `pyproject. toml` project identity and every requirement  it declares:
+ * Parse a `pyproject.toml` project identity and every requirement it declares:
  * `requires` under
- * `[build-s ystem]`, `dependencies` under `[project]`, an d every key under
- * `[project.optional-depen dencies]` and `[dependency-groups]`. A TOML p arser
- * owns comments, quoted keys, escapes,  and array boundaries; unsupported
- * require ment forms fail instead of disappearing from  the notices.
- * @param text - the complete `p yproject.toml` contents.
- * @returns the loca l project name and declared requirement names .
+ * `[build-system]`, `dependencies` under `[project]`, and every key under
+ * `[project.optional-dependencies]` and `[dependency-groups]`. A TOML parser
+ * owns comments, quoted keys, escapes, and array boundaries; unsupported
+ * requirement forms fail instead of disappearing from the notices.
+ * @param text - the complete `pyproject.toml` contents.
+ * @returns the local project name and declared requirement names.
  */
-function parsePyproject(text: string):  { projectName?: string; requirements: string[ ] } {
+function parsePyproject(text: string): { projectName?: string; requirements: string[] } {
   const names: string[] = []
-  const do cument = parseToml(text, { integersAsBigInt:  false })
-  const buildSystem = optionalTomlTa ble(document['build-system'], '[build-system] ')
-  const project = optionalTomlTable(docume nt.project, '[project]')
-  const projectName  = project?.name
-  if (projectName !== undefin ed && typeof projectName !== 'string') {
-     throw new Error('gen-third-party-notices: [pr oject].name must be a string.')
+  const document = parseToml(text, { integersAsBigInt: false })
+  const buildSystem = optionalTomlTable(document['build-system'], '[build-system]')
+  const project = optionalTomlTable(document.project, '[project]')
+  const projectName = project?.name
+  if (projectName !== undefined && typeof projectName !== 'string') {
+    throw new Error('gen-third-party-notices: [project].name must be a string.')
   }
-  collect PythonRequirementArray(names, buildSystem?.re quires, '[build-system].requires')
-  collectP ythonRequirementArray(names, project?.depende ncies, '[project].dependencies')
+  collectPythonRequirementArray(names, buildSystem?.requires, '[build-system].requires')
+  collectPythonRequirementArray(names, project?.dependencies, '[project].dependencies')
 
-  const opt ional = optionalTomlTable(project?.['optional -dependencies'], '[project.optional-dependenc ies]')
-  for (const [group, requirements] of  Object.entries(optional ?? {})) {
-    collect PythonRequirementArray(names, requirements, ` [project.optional-dependencies].${group}`)
-   }
-
-  const groups = optionalTomlTable(documen t['dependency-groups'], '[dependency-groups]' )
-  for (const [group, requirements] of Objec t.entries(groups ?? {})) {
-    collectPythonR equirementArray(names, requirements, `[depend ency-groups].${group}`, true)
+  const optional = optionalTomlTable(project?.['optional-dependencies'], '[project.optional-dependencies]')
+  for (const [group, requirements] of Object.entries(optional ?? {})) {
+    collectPythonRequirementArray(names, requirements, `[project.optional-dependencies].${group}`)
   }
-  return pr ojectName === undefined
-    ? { requirements:  names }
-    : { projectName, requirements: n ames }
+
+  const groups = optionalTomlTable(document['dependency-groups'], '[dependency-groups]')
+  for (const [group, requirements] of Object.entries(groups ?? {})) {
+    collectPythonRequirementArray(names, requirements, `[dependency-groups].${group}`, true)
+  }
+  return projectName === undefined
+    ? { requirements: names }
+    : { projectName, requirements: names }
 }
 
 /**
- * Read every requirement name  declared by one `pyproject.toml`.
- * @param t ext - the complete `pyproject.toml` contents. 
- * @returns each declared requirement's dist ribution name, in file order.
+ * Read every requirement name declared by one `pyproject.toml`.
+ * @param text - the complete `pyproject.toml` contents.
+ * @returns each declared requirement's distribution name, in file order.
  */
-export func tion parsePyprojectRequirements(text: string) : string[] {
-  return parsePyproject(text).re quirements
+export function parsePyprojectRequirements(text: string): string[] {
+  return parsePyproject(text).requirements
 }
 
-/** Normalize a Python distribu tion name according to the packaging name rul e. */
-function normalizePythonDistributionNam e(name: string): string {
-  return name.toLow erCase().replace(/[-_.]+/g, '-')
+/** Normalize a Python distribution name according to the packaging name rule. */
+function normalizePythonDistributionName(name: string): string {
+  return name.toLowerCase().replace(/[-_.]+/g, '-')
 }
 
 /**
- * Re solve external Python dependencies after excl uding local project names.
- * @param pyprojec ts - complete local `pyproject.toml` contents .
- * @param metadata - disclosure metadata fo r every external dependency.
- * @returns disc losed dependencies in normalized name order.
-  */
-export function collectPythonDependencies (
+ * Resolve external Python dependencies after excluding local project names.
+ * @param pyprojects - complete local `pyproject.toml` contents.
+ * @param metadata - disclosure metadata for every external dependency.
+ * @returns disclosed dependencies in normalized name order.
+ */
+export function collectPythonDependencies(
   pyprojects: string[],
-  metadata: PythonM etadata = PYTHON_METADATA,
-): { name: string;  license: string; repo: string; role: string  }[] {
-  const parsed = pyprojects.map(parsePy project)
-  const firstParty = new Set(parsed. flatMap(({ projectName }) => (
-    projectNam e === undefined ? [] : [normalizePythonDistri butionName(projectName)]
+  metadata: PythonMetadata = PYTHON_METADATA,
+): { name: string; license: string; repo: string; role: string }[] {
+  const parsed = pyprojects.map(parsePyproject)
+  const firstParty = new Set(parsed.flatMap(({ projectName }) => (
+    projectName === undefined ? [] : [normalizePythonDistributionName(projectName)]
   )))
-  const found  = new Set(parsed
-    .flatMap(({ requirements  }) => requirements.map(normalizePythonDistri butionName))
-    .filter(name => !firstParty. has(name)))
-  return [...found].sort((a, b) = > a.localeCompare(b)).map((name) => {
-    con st entry = metadata[name]
-    if (entry === u ndefined) throw new Error(`gen-third-party-no tices: python dependency ${name} is missing f rom PYTHON_METADATA.`)
-    return { name, ... entry }
+  const found = new Set(parsed
+    .flatMap(({ requirements }) => requirements.map(normalizePythonDistributionName))
+    .filter(name => !firstParty.has(name)))
+  return [...found].sort((a, b) => a.localeCompare(b)).map((name) => {
+    const entry = metadata[name]
+    if (entry === undefined) throw new Error(`gen-third-party-notices: python dependency ${name} is missing from PYTHON_METADATA.`)
+    return { name, ...entry }
   })
 }
 
-/** Direct Python dependencie s named by the `pyproject.toml` manifests und er `python/`. */
-function collectPython(): {  name: string; license: string; repo: string;  role: string }[] {
-  const manifests = globSy nc('python/*/pyproject.toml', { cwd: root })
-   if (manifests.length === 0) throw new Error ('gen-third-party-notices: no python/*/pyproj ect.toml found; the Python tree moved.')
-  re turn collectPythonDependencies(manifests.map( path => readFileSync(resolve(root, path), 'ut f8')))
+/** Direct Python dependencies named by the `pyproject.toml` manifests under `python/`. */
+function collectPython(): { name: string; license: string; repo: string; role: string }[] {
+  const manifests = globSync('python/*/pyproject.toml', { cwd: root })
+  if (manifests.length === 0) throw new Error('gen-third-party-notices: no python/*/pyproject.toml found; the Python tree moved.')
+  return collectPythonDependencies(manifests.map(path => readFileSync(resolve(root, path), 'utf8')))
 }
 
-/** pnpm-patched external packages,  from `pnpm-workspace.yaml`. */
-function coll ectPatched(): { spec: string; patch: string } [] {
-  const workspace = yaml.load(readFileSy nc(resolve(root, 'pnpm-workspace.yaml'), 'utf 8')) as { patchedDependencies?: Record<string , string> }
-  return Object.entries(workspace .patchedDependencies ?? {}).map(([spec, patch ]) => ({ spec, patch }))
+/** pnpm-patched external packages, from `pnpm-workspace.yaml`. */
+function collectPatched(): { spec: string; patch: string }[] {
+  const workspace = yaml.load(readFileSync(resolve(root, 'pnpm-workspace.yaml'), 'utf8')) as { patchedDependencies?: Record<string, string> }
+  return Object.entries(workspace.patchedDependencies ?? {}).map(([spec, patch]) => ({ spec, patch }))
 }
 
-/** Verify each b uild-time tool pin still appears in its ownin g script. */
-function verifyBuildTimePins():  void {
-  for (const tool of BUILD_TIME_TOOLS)  {
-    const text = readFileSync(resolve(root , tool.pinSource), 'utf8')
-    if (!text.incl udes(tool.name)) {
-      throw new Error(`gen -third-party-notices: ${tool.pinSource} no lo nger references ${tool.name}; update BUILD_TI ME_TOOLS.`)
+/** Verify each build-time tool pin still appears in its owning script. */
+function verifyBuildTimePins(): void {
+  for (const tool of BUILD_TIME_TOOLS) {
+    const text = readFileSync(resolve(root, tool.pinSource), 'utf8')
+    if (!text.includes(tool.name)) {
+      throw new Error(`gen-third-party-notices: ${tool.pinSource} no longer references ${tool.name}; update BUILD_TIME_TOOLS.`)
     }
   }
 }
 
-/** SPDX identifiers  this project may ship without further review . */
-const PERMISSIVE_LICENSES = new Set(['MI T', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'A pache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', ' BlueOak-1.0.0', 'Python-2.0'])
+/** SPDX identifiers this project may ship without further review. */
+const PERMISSIVE_LICENSES = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', 'BlueOak-1.0.0', 'Python-2.0'])
 
-/** Evaluate  a parsed SPDX expression under the repository 's license policy. */
-function isPermissiveSp dx(expression: ReturnType<typeof parseSpdx>):  boolean {
-  if ('conjunction' in expression)  {
-    return expression.conjunction === 'and '
-      ? isPermissiveSpdx(expression.left) & & isPermissiveSpdx(expression.right)
-      :  isPermissiveSpdx(expression.left) || isPermis siveSpdx(expression.right)
+/** Evaluate a parsed SPDX expression under the repository's license policy. */
+function isPermissiveSpdx(expression: ReturnType<typeof parseSpdx>): boolean {
+  if ('conjunction' in expression) {
+    return expression.conjunction === 'and'
+      ? isPermissiveSpdx(expression.left) && isPermissiveSpdx(expression.right)
+      : isPermissiveSpdx(expression.left) || isPermissiveSpdx(expression.right)
   }
-  return expre ssion.plus !== true
-    && expression.excepti on === undefined
-    && PERMISSIVE_LICENSES.h as(expression.license)
+  return expression.plus !== true
+    && expression.exception === undefined
+    && PERMISSIVE_LICENSES.has(expression.license)
 }
 
 /**
- * Whether an S PDX expression grants terms this project may  ship under.
- * `OR` needs one permissive alte rnative, because the consumer chooses; `AND`
-  * needs all of them, because every obligatio n applies. Anything that is not a
- * recogniz ed permissive identifier — copyleft, an exc eption clause, or a
- * license this list has  never seen — evaluates to false, so an unfa miliar
- * expression fails closed rather than  passing on a partial match.
- * @param licens e - the SPDX expression from the package mani fest.
- * @returns true when the expression's  obligations are all permissive.
+ * Whether an SPDX expression grants terms this project may ship under.
+ * `OR` needs one permissive alternative, because the consumer chooses; `AND`
+ * needs all of them, because every obligation applies. Anything that is not a
+ * recognized permissive identifier — copyleft, an exception clause, or a
+ * license this list has never seen — evaluates to false, so an unfamiliar
+ * expression fails closed rather than passing on a partial match.
+ * @param license - the SPDX expression from the package manifest.
+ * @returns true when the expression's obligations are all permissive.
  */
-export fu nction isPermissive(license: string): boolean  {
-  // Some npm manifests use a slash for a  choice despite SPDX requiring `OR`.
-  const n ormalized = license.replace(/\s*\/\s*/g, ' OR  ').trim()
+export function isPermissive(license: string): boolean {
+  // Some npm manifests use a slash for a choice despite SPDX requiring `OR`.
+  const normalized = license.replace(/\s*\/\s*/g, ' OR ').trim()
   try {
-    return isPermissiveSpd x(parseSpdx(normalized))
+    return isPermissiveSpdx(parseSpdx(normalized))
   } catch {
-    retu rn false
+    return false
   }
 }
 
 /**
- * Render the sentence th at isolates non-permissive development toolin g, or
- * nothing at all when every developmen t dependency is permissive.
- * @param deps -  development dependencies whose license is not  permissive.
- * @returns the paragraph to pla ce after the development table.
+ * Render the sentence that isolates non-permissive development tooling, or
+ * nothing at all when every development dependency is permissive.
+ * @param deps - development dependencies whose license is not permissive.
+ * @returns the paragraph to place after the development table.
  */
-function  renderNonPermissiveNote(deps: ExternalDep[]):  string {
+function renderNonPermissiveNote(deps: ExternalDep[]): string {
   if (deps.length === 0) return ''
-   const named = deps.map(dep => `\`${dep.name }\` (${dep.license})`)
-  const subject = name d.length === 1 ? named[0] : `${named.slice(0,  -1).join(', ')} and ${named.at(-1)}`
-  retur n `\n${subject} ${named.length === 1 ? 'runs'  : 'run'} only as development tooling; their  code is not linked into or distributed with a ny DeepSeek Harness artifact.\n`
+  const named = deps.map(dep => `\`${dep.name}\` (${dep.license})`)
+  const subject = named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`
+  return `\n${subject} ${named.length === 1 ? 'runs' : 'run'} only as development tooling; their code is not linked into or distributed with any DeepSeek Harness artifact.\n`
 }
 
-/** Rende r one npm dependency table. */
-function rende rNpmTable(deps: ExternalDep[]): string {
-  co nst lines = ['| Package | License |', '| ---  | --- |']
-  for (const dep of deps) lines.pus h(`| [\`${dep.name}\`](${dep.repo}) | ${dep.l icense} |`)
+/** Render one npm dependency table. */
+function renderNpmTable(deps: ExternalDep[]): string {
+  const lines = ['| Package | License |', '| --- | --- |']
+  for (const dep of deps) lines.push(`| [\`${dep.name}\`](${dep.repo}) | ${dep.license} |`)
   return lines.join('\n')
 }
 
-func tion renderClaudeDistribution(
-  distribution : ClaudeDistribution | undefined,
-): string { 
+function renderClaudeDistribution(
+  distribution: ClaudeDistribution | undefined,
+): string {
   if (distribution === undefined) return ''
-   const rows = distribution.payloads.map(payl oad =>
-    `| [\`${payload.name}\`](https://w ww.npmjs.com/package/${payload.name}) | ${pay load.version} | ${CLAUDE_PLATFORM_DECLARED_LI CENSE} |`,
+  const rows = distribution.payloads.map(payload =>
+    `| [\`${payload.name}\`](https://www.npmjs.com/package/${payload.name}) | ${payload.version} | ${CLAUDE_PLATFORM_DECLARED_LICENSE} |`,
   )
   return `
-## Official Claude  Code platform payloads
+## Official Claude Code platform payloads
 
-The project owner aut horizes distribution of every version of the  official \`${CLAUDE_AGENT_SDK_PACKAGE}\` pack age and the official Claude Code CLI/platform  payloads that each version declares through  \`optionalDependencies\`. This identity-scope d authorization does not classify their decla red terms as permissive and does not cover an y unrelated runtime package; version, declare d-license, and payload-set changes still requ ire the ordinary dependency, lockfile, compat ibility, terms, and notices review.
+The project owner authorizes distribution of every version of the official \`${CLAUDE_AGENT_SDK_PACKAGE}\` package and the official Claude Code CLI/platform payloads that each version declares through \`optionalDependencies\`. This identity-scoped authorization does not classify their declared terms as permissive and does not cover any unrelated runtime package; version, declared-license, and payload-set changes still require the ordinary dependency, lockfile, compatibility, terms, and notices review.
 
-The inst alled SDK ${distribution.sdkVersion} declares  the following optional platform packages. Ea ch carries the official Claude Code ${distrib ution.claudeCodeVersion} executable; the pack age identities and versions come from the SDK  manifest, while the declared license field i s verified against the platform payload insta lled for the current host.
+The installed SDK ${distribution.sdkVersion} declares the following optional platform packages. Each carries the official Claude Code ${distribution.claudeCodeVersion} executable; the package identities and versions come from the SDK manifest, while the declared license field is verified against the platform payload installed for the current host.
 
-| Optional platfo rm package | Version | Declared license |
-| - -- | --- | --- |
+| Optional platform package | Version | Declared license |
+| --- | --- | --- |
 ${rows.join('\n')}
 `
 }
 
 /**
-  * Render the complete notices document.
- * @ returns the exact bytes `THIRD_PARTY_NOTICES. md` must hold.
+ * Render the complete notices document.
+ * @returns the exact bytes `THIRD_PARTY_NOTICES.md` must hold.
  */
-export function render():  string {
+export function render(): string {
   verifyBuildTimePins()
-  const npm  = collectNpmDeps()
-  const runtimeDeps = npm. filter(dep => dep.runtime)
-  const devDeps =  npm.filter(dep => !dep.runtime)
-  const vendo red = collectVendored()
-  const python = coll ectPython()
-  const patched = collectPatched( )
-  const claudeDistribution = runtimeDeps.so me(
-    dep => dep.name === CLAUDE_AGENT_SDK_ PACKAGE,
+  const npm = collectNpmDeps()
+  const runtimeDeps = npm.filter(dep => dep.runtime)
+  const devDeps = npm.filter(dep => !dep.runtime)
+  const vendored = collectVendored()
+  const python = collectPython()
+  const patched = collectPatched()
+  const claudeDistribution = runtimeDeps.some(
+    dep => dep.name === CLAUDE_AGENT_SDK_PACKAGE,
   )
-    ? collectClaudeDistribution( )
+    ? collectClaudeDistribution()
     : undefined
 
-  const nonPermissiveDev =  devDeps.filter(dep => !isPermissive(dep.lice nse))
-  // A copyleft license reaching a ship ped surface is a distribution decision,
-  //  not a rendering detail; the notices cannot qu ietly absorb it.
-  const nonPermissiveRuntime  = runtimeDeps.filter(dep =>
-    !isPermissiv e(dep.license)
-    && !isOwnerAuthorizedRunti me(dep.name),
+  const nonPermissiveDev = devDeps.filter(dep => !isPermissive(dep.license))
+  // A copyleft license reaching a shipped surface is a distribution decision,
+  // not a rendering detail; the notices cannot quietly absorb it.
+  const nonPermissiveRuntime = runtimeDeps.filter(dep =>
+    !isPermissive(dep.license)
+    && !isOwnerAuthorizedRuntime(dep.name),
   )
-  if (nonPermissiveRuntime. length > 0) {
-    throw new Error(`gen-third- party-notices: runtime ${nonPermissiveRuntime .map(dep => `${dep.name} (${dep.license})`).j oin(', ')} is not a permissive license; revie w the distribution terms and record the decis ion before regenerating.`)
+  if (nonPermissiveRuntime.length > 0) {
+    throw new Error(`gen-third-party-notices: runtime ${nonPermissiveRuntime.map(dep => `${dep.name} (${dep.license})`).join(', ')} is not a permissive license; review the distribution terms and record the decision before regenerating.`)
   }
-  const patche dLines = patched.map(({ spec, patch }) => `-  \`${spec}\` — [\`${patch}\`](${patch})`)
+  const patchedLines = patched.map(({ spec, patch }) => `- \`${spec}\` — [\`${patch}\`](${patch})`)
 
-   return `<!-- Generated by scripts/gen-third- party-notices.ts — do not edit by hand.
-      Run \`pnpm run gen-third-party-notices\` to  regenerate. -->
+  return `<!-- Generated by scripts/gen-third-party-notices.ts — do not edit by hand.
+     Run \`pnpm run gen-third-party-notices\` to regenerate. -->
 
 # Third-Party Notices
 
-Deep Seek Harness is licensed under [MIT](LICENSE) . It depends on the third-party software list ed below. Each project remains under its own  license; nothing in this file changes those t erms.
+DeepSeek Harness is licensed under [MIT](LICENSE). It depends on the third-party software listed below. Each project remains under its own license; nothing in this file changes those terms.
 
-This file lists **direct** dependencie s declared by the workspace and the explicitl y disclosed official Claude platform payload  closure. It is generated from the workspace m anifests by \`scripts/gen-third-party-notices .ts\`: a pre-commit hook regenerates it whene ver a staged file changes one of its inputs,  and \`scripts/gen-third-party-notices.spec.ts \` asserts in the test lane that the committe d bytes match. Deleting a manifest runs no ho ok, so that case is caught by the assertion i nstead. Run \`pnpm run verify-third-party-not ices\` for the standalone check.
+This file lists **direct** dependencies declared by the workspace and the explicitly disclosed official Claude platform payload closure. It is generated from the workspace manifests by \`scripts/gen-third-party-notices.ts\`: a pre-commit hook regenerates it whenever a staged file changes one of its inputs, and \`scripts/gen-third-party-notices.spec.ts\` asserts in the test lane that the committed bytes match. Deleting a manifest runs no hook, so that case is caught by the assertion instead. Run \`pnpm run verify-third-party-notices\` for the standalone check.
 
-The complet e npm transitive closure, including the Landl ock launcher workspace, is recorded with exac t pinned versions in [\`pnpm-lock.yaml\`](pnp m-lock.yaml) — inspect it with \`pnpm licen ses list\`. The Python closure is recorded se parately in [\`python/sdk/uv.lock\`](python/s dk/uv.lock).
+The complete npm transitive closure, including the Landlock launcher workspace, is recorded with exact pinned versions in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) — inspect it with \`pnpm licenses list\`. The Python closure is recorded separately in [\`python/sdk/uv.lock\`](python/sdk/uv.lock).
 
-## Vendored source (\`vendor/\` )
+## Vendored source (\`vendor/\`)
 
-The Cordis framework and its foundation li braries are source-vendored into this reposit ory rather than consumed from npm, and republ ished under the \`@deepseek-ai\` scope. All a re MIT-licensed; each directory preserves its  upstream \`LICENSE\` file. Exact upstream co mmits and local modifications are recorded in  [\`vendor/README.md\`](vendor/README.md).
+The Cordis framework and its foundation libraries are source-vendored into this repository rather than consumed from npm, and republished under the \`@deepseek-ai\` scope. All are MIT-licensed; each directory preserves its upstream \`LICENSE\` file. Exact upstream commits and local modifications are recorded in [\`vendor/README.md\`](vendor/README.md).
 
-|  Package | Upstream name | Upstream | License  |
+| Package | Upstream name | Upstream | License |
 | --- | --- | --- | --- |
-${vendored.map(r ow => `| \`${row.npmName}\` | \`${row.upstrea mName}\` | [${row.upstream.replace('https://' , '')}](${row.upstream}) | MIT |`).join('\n') }
+${vendored.map(row => `| \`${row.npmName}\` | \`${row.upstreamName}\` | [${row.upstream.replace('https://', '')}](${row.upstream}) | MIT |`).join('\n')}
 
 ## Runtime npm dependencies
 
-External pack ages that a workspace package resolves at run time. The tier covers every plugin a user can  mount from \`cordis.yml\` — not only what  the \`dsh\` CLI, Web UI, and Python SDK runti me load by default.
+External packages that a workspace package resolves at runtime. The tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI, Web UI, and Python SDK runtime load by default.
 
-${renderNpmTable(runtime Deps)}
+${renderNpmTable(runtimeDeps)}
 
-pnpm applies local patches to the fol lowing packages at install time, so shipped a rtifacts carry modified copies; each patch fi le is the complete record of the modification :
+pnpm applies local patches to the following packages at install time, so shipped artifacts carry modified copies; each patch file is the complete record of the modification:
 
 ${patchedLines.join('\n')}
-${renderClaudeD istribution(claudeDistribution)}
+${renderClaudeDistribution(claudeDistribution)}
 
-## Developm ent-only npm dependencies
+## Development-only npm dependencies
 
-External packages  **directly declared** only by repository tool ing, test infrastructure, the documentation s ite, the demo leaves, or the native launcher' s build workspace. No shipped surface names t hem itself. A package here may still be pulle d in transitively by a runtime dependency —  \`pnpm-lock.yaml\` is the authority on the f ull closure — so this tier records who decl ares a package, not what a build ultimately b undles.
+External packages **directly declared** only by repository tooling, test infrastructure, the documentation site, the demo leaves, or the native launcher's build workspace. No shipped surface names them itself. A package here may still be pulled in transitively by a runtime dependency — \`pnpm-lock.yaml\` is the authority on the full closure — so this tier records who declares a package, not what a build ultimately bundles.
 
 ${renderNpmTable(devDeps)}
-${renderN onPermissiveNote(nonPermissiveDev)}
-## Python  SDK dependencies (\`python/\`)
+${renderNonPermissiveNote(nonPermissiveDev)}
+## Python SDK dependencies (\`python/\`)
 
-Direct depen dencies of the \`pyproject.toml\` manifests,  plus \`uv\` as the development workflow tool. 
-
-| Package | License | Role |
-| --- | --- |  --- |
-${python.map(dep => `| [\`${dep.name}\` ](${dep.repo}) | ${dep.license} | ${dep.role}  |`).join('\n')}
-| [\`uv\`](https://github.co m/astral-sh/uv) | MIT / Apache-2.0 | developm ent workflow tool |
-
-## Fetched at build time 
+Direct dependencies of the \`pyproject.toml\` manifests, plus \`uv\` as the development workflow tool.
 
 | Package | License | Role |
-| --- | --- |  --- |
-${BUILD_TIME_TOOLS.map(tool => `| [\`${ tool.name}\`](${tool.repo}) | ${tool.license}  | ${tool.role} |`).join('\n')}
+| --- | --- | --- |
+${python.map(dep => `| [\`${dep.name}\`](${dep.repo}) | ${dep.license} | ${dep.role} |`).join('\n')}
+| [\`uv\`](https://github.com/astral-sh/uv) | MIT / Apache-2.0 | development workflow tool |
 
-## First-par ty native packages
+## Fetched at build time
 
-\`@deepseek-ai/node-addon -landlock-run\` (and its platform packages) i s built and released from this repository und er BSD 3-Clause. It is listed here for comple teness; it is first-party, not third-party.
-` 
+| Package | License | Role |
+| --- | --- | --- |
+${BUILD_TIME_TOOLS.map(tool => `| [\`${tool.name}\`](${tool.repo}) | ${tool.license} | ${tool.role} |`).join('\n')}
+
+## First-party native packages
+
+\`@deepseek-ai/node-addon-landlock-run\` (and its platform packages) is built and released from this repository under BSD 3-Clause. It is listed here for completeness; it is first-party, not third-party.
+`
 }
 
-/** CLI entry: default writes the notices , `--check` fails if the committed copy
- * is  stale. Guarded behind an entry-point check s o importing this module for
- * tests neither  regenerates the committed file nor calls proc ess.exit. */
+/** CLI entry: default writes the notices, `--check` fails if the committed copy
+ * is stale. Guarded behind an entry-point check so importing this module for
+ * tests neither regenerates the committed file nor calls process.exit. */
 function main(): void {
-  const  content = render()
-  if (process.argv.include s('--check')) {
-    let committed: string | n ull = null
+  const content = render()
+  if (process.argv.includes('--check')) {
+    let committed: string | null = null
     try {
-      committed = readFi leSync(resolve(root, OUT), 'utf8')
-    } catc h {
-      // Only ENOENT (not yet generated)  is expected; a present-but-unreadable
-      / / file is not a state this repo produces, and  the remedy is the same.
-      committed = nu ll
+      committed = readFileSync(resolve(root, OUT), 'utf8')
+    } catch {
+      // Only ENOENT (not yet generated) is expected; a present-but-unreadable
+      // file is not a state this repo produces, and the remedy is the same.
+      committed = null
     }
     if (committed === content) {
-       console.log(`gen-third-party-notices: ${OU T} is up to date.`)
+      console.log(`gen-third-party-notices: ${OUT} is up to date.`)
       process.exit(0)
-     }
-    console.error(`gen-third-party-notices : ${OUT} is stale. Run \`pnpm run gen-third-p arty-notices\` and commit ${OUT}.`)
-    proce ss.exit(1)
+    }
+    console.error(`gen-third-party-notices: ${OUT} is stale. Run \`pnpm run gen-third-party-notices\` and commit ${OUT}.`)
+    process.exit(1)
   }
 
-  writeFileSync(resolve(root,  OUT), content)
-  console.log(`gen-third-part y-notices: wrote ${OUT}.`)
+  writeFileSync(resolve(root, OUT), content)
+  console.log(`gen-third-party-notices: wrote ${OUT}.`)
 }
 
-// Run only whe n invoked as a script, not when imported by a  test.
-if (process.argv[1] !== undefined && i mport.meta.filename === resolve(process.argv[ 1])) {
+// Run only when invoked as a script, not when imported by a test.
+if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) {
   main()
 }
- 
