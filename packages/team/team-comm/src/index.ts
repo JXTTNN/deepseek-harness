@@ -818,6 +818,7 @@ export function apply(ctx: Context): void {
             }
           }
           if (!skipTrigger) {
+            const safeInlineMessage = String(args.message).slice(0, 1000).replace(/[\r\n]+/g, ' ').trim()
             const postData = JSON.stringify({
               type: 'client-request',
               rpcId: `team-${msgId.slice(0, 8)}`,
@@ -825,7 +826,7 @@ export function apply(ctx: Context): void {
               payload: {
                 sessionId: target,
                 mode: 'steer',
-                content: [{ type: 'text', text: `!!! TEAM MESSAGE from ${from} (msgId: ${msgId}): ${args.message}\n\nYOU MUST CALL team_send(target: "${from}", reply_to: "${msgId}", message: "your complete response") RIGHT NOW. Do NOT type text. Do NOT call team_inbox. Do NOT describe. Just CALL team_send.` }],
+                content: [{ type: 'text', text: `!!! TEAM MESSAGE from ${from} (msgId: ${msgId}): ${safeInlineMessage}\n\nYOU MUST CALL team_send(target: "${from}", reply_to: "${msgId}", message: "your complete response") RIGHT NOW. Do NOT type text. Do NOT call team_inbox. Do NOT describe. Just CALL team_send.` }],
               },
             })
             const req = httpRequest({
