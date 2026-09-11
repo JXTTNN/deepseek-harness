@@ -4082,6 +4082,24 @@ importers:
         specifier: workspace:^
         version: link:../../core/tools
 
+  packages/extensions/tool-dependency-graph:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+
+  packages/extensions/tool-diff-merge:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+
   packages/extensions/tool-programming-assistant:
     dependencies:
       '@deepseek-ai/cordis':
@@ -4094,6 +4112,27 @@ importers:
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@26.1.2)(jsdom@29.1.1)(lightningcss@1.32.0)
+
+  packages/extensions/tool-semantic-search:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-fs':
+        specifier: workspace:^
+        version: link:../../fs/fs
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+
+  packages/extensions/tool-test-impact:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
 
   packages/extensions/tool-workflow-run:
     devDependencies:
