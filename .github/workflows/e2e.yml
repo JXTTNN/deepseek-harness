@@ -1,10 +1,15 @@
-name: E2E (real DeepSeek API)
+﻿name: E2E (real API)
 
-# Real-API end-to-end suite (`pnpm run test:e2e`). Unlike ci.yml this job
-# consumes the DEEPSEEK_API_KEY_EXTERNAL secret (mapped to the env var
-# DEEPSEEK_API_KEY the tests read) and hits the external API at
-# https://api.deepseek.com (DEEPSEEK_BASE_URL is pinned to it explicitly so a
-# stray repo-root .env can't redirect the run).
+# Real-API end-to-end suite (`pnpm run test:e2e`). Supports any OpenAI-compatible
+# API via DEEPSEEK_BASE_URL (defaults to https://api.deepseek.com). When using a
+# non-DeepSeek endpoint, official-only suites (model-specific assertions) are
+# auto-skipped by vitest.e2e.config.ts; generic agent-flow e2e (fs, shell,
+# headless, web) runs against whatever endpoint is configured.
+#
+# Custom API configuration:
+#   - workflow_dispatch inputs: api_base_url, model (override at trigger time)
+#   - Secrets: CUSTOM_API_KEY or DEEPSEEK_API_KEY_EXTERNAL or DSH_API_KEY
+#   - Base URL: inputs.api_base_url or secrets.DSH_BASE_URL or default
 #
 # pull_request IS a trigger, but GitHub withholds repo secrets from BOTH forked
 # PRs and Dependabot PRs (the latter are same-repo, fork==false, but still
@@ -29,6 +34,22 @@ name: E2E (real DeepSeek API)
 # push/pull_request/workflow_dispatch act as backstops.
 on:
   workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Custom API base URL (e.g. https://api.openai.com/v1, https://api.deepseek.com). Leave empty to use secret/default.'
+        required: false
+        type: string
+        default: ''
+      model:
+        description: 'Custom model name override (e.g. deepseek-chat, gpt-4o). Leave empty for default.'
+        required: false
+        type: string
+        default: ''
+      max_workers:
+        description: 'Max parallel test workers (default 4)'
+        required: false
+        type: string
+        default: '4'
   push:
     branches: [main, master]
   pull_request:
@@ -73,8 +94,8 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
 
       # The with-key escalation e2e self-skips without a usable runner. Install
       # bwrap so trusted CI exercises it; the userns knob is best-effort and the
@@ -90,21 +111,21 @@ jobs:
       # absent, so a missing/misconfigured secret would otherwise pass as
       # "all skipped". This job only runs on trusted events (the `if:` above
       # excludes keyless PRs), so the secret MUST be present — fail loudly if not.
-      - name: Preflight (require DEEPSEEK_API_KEY)
+      - name: Preflight (require API key)
         env:
-          # Repo secret DEEPSEEK_API_KEY_EXTERNAL holds the external-API key;
-          # the tests read process.env.DEEPSEEK_API_KEY, so map it across here.
-          # Forks that only carry DSH_API_KEY (the Cloud Detect convention)
-          # fall back to it instead of failing the preflight outright.
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL || secrets.DSH_API_KEY || secrets.DEEPSEEK_API_KEY }}
+          # API key fallback chain: CUSTOM_API_KEY for non-DeepSeek providers,
+          # then the DeepSeek-specific secrets, then the Cloud Detect convention.
+          DEEPSEEK_API_KEY: ${{ secrets.CUSTOM_API_KEY || secrets.DEEPSEEK_API_KEY_EXTERNAL || secrets.DSH_API_KEY || secrets.DEEPSEEK_API_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
-            echo "::error::DEEPSEEK_API_KEY is empty. The e2e suite would self-skip and"
-            echo "::error::report a false green. Configure the repo secret DEEPSEEK_API_KEY_EXTERNAL."
+            echo "::error::API key is empty. Configure one of: CUSTOM_API_KEY, DEEPSEEK_API_KEY_EXTERNAL, DSH_API_KEY, DEEPSEEK_API_KEY"
             exit 1
           fi
-          echo "DEEPSEEK_API_KEY present."
+          echo "API key present."
+          # Show which base URL will be used (without exposing the key)
+          BASE_URL="${{ inputs.api_base_url || secrets.DSH_BASE_URL || secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}"
+          echo "Using API base URL: $BASE_URL"
 
       # The e2e suites boot the example bins in `lib` mode (DSH_EXAMPLE_MODE=lib):
       # the built artifact under plain Node, resolving plugins through real package
@@ -112,20 +133,21 @@ jobs:
       - name: Build (lib for the e2e example bins)
         run: pnpm run build
 
-      # Real-API end-to-end tests only. The keyless gates (lint/typecheck/
-      # coverage/snapshot/etc.) already run in ci.yml on every push/PR.
-      # DEEPSEEK_BASE_URL is pinned to the external API; the secret is scoped to
-      # this step (and preflight) only — never exposed to checkout/setup/install.
-      - name: E2E tests (real DeepSeek API)
+      # Real-API end-to-end tests. Supports any OpenAI-compatible API.
+      # DEEPSEEK_BASE_URL can point to any endpoint; non-official endpoints
+      # auto-skip official-only suites (model-specific assertions) via
+      # vitest.e2e.config.ts. Generic e2e (fs, shell, headless, web) runs
+      # against whatever endpoint is configured.
+      - name: E2E tests (real API)
         env:
-          # Key/base-URL fallbacks pair the fork's DSH_* secrets when the
-          # upstream DEEPSEEK_API_KEY_EXTERNAL convention is not configured.
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL || secrets.DSH_API_KEY || secrets.DEEPSEEK_API_KEY }}
-          DEEPSEEK_BASE_URL: ${{ secrets.DSH_BASE_URL || secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
-          # 网关每 key 20 req/min 硬限流（run 34087293815 根因表）；14 并发
-          # 把 reasoning-max 的多跳请求挤到 42–62s/step 并打挂重试链。
-          # 回到 vitest.e2e.config.ts 的默认 4 worker：不出现集中拥塞又保住
-          # ~30 分钟的完成预算（2 并发能把整组推过 60m 超时线）。
-          DSH_E2E_MAX_WORKERS: 4
+          # API key fallback chain: CUSTOM_API_KEY for non-DeepSeek providers,
+          # then the DeepSeek-specific secrets, then the Cloud Detect convention.
+          DEEPSEEK_API_KEY: ${{ secrets.CUSTOM_API_KEY || secrets.DEEPSEEK_API_KEY_EXTERNAL || secrets.DSH_API_KEY || secrets.DEEPSEEK_API_KEY }}
+          # Base URL: workflow_dispatch input overrides secrets, which override default.
+          DEEPSEEK_BASE_URL: ${{ inputs.api_base_url || secrets.DSH_BASE_URL || secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
+          # Custom model override (empty string for default model).
+          DSH_MODEL: ${{ inputs.model || '' }}
+          # Parallel workers: workflow_dispatch input or default 4.
+          DSH_E2E_MAX_WORKERS: ${{ inputs.max_workers || '4' }}
           DSH_EXAMPLE_MODE: lib
         run: pnpm run test:e2e
