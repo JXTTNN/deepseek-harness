@@ -15,7 +15,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 
 export const name = 'tool-workflow-run'
@@ -39,10 +39,6 @@ interface WorkflowStep {
   retry?: number
 }
 
-/** The complete workflow definition. */
-interface Workflow {
-  steps: WorkflowStep[]
-}
 
 /** Result of one workflow step execution. */
 interface StepResult {
@@ -133,10 +129,10 @@ export function apply(ctx: Context): void {
       const globalContext = args.context ?? {}
 
       // Validate the DAG: check for duplicate IDs, unknown dependencies, and cycles.
-      validateDag(steps)
+      validateDag(steps as WorkflowStep[])
 
       // Execute the workflow.
-      const results = await executeWorkflow(ctx, steps, globalContext, exec.signal)
+      const results = await executeWorkflow(ctx, steps as WorkflowStep[], globalContext, exec.signal)
 
       const duration_ms = Date.now() - startTime
       const result: WorkflowResult = { steps: results, duration_ms }
@@ -200,7 +196,7 @@ async function executeWorkflow(
   signal: AbortSignal,
 ): Promise<Record<string, StepResult>> {
   const results: Record<string, StepResult> = {}
-  const stepMap = new Map(steps.map(s => [s.id, s]))
+
   const completed = new Set<string>()
 
   while (completed.size < steps.length) {
@@ -273,7 +269,7 @@ async function executeStep(
       if (attempt < maxRetries) continue
     }
   }
-  return { status: 'failed', error: lastError }
+  return { status: 'failed', ...(lastError !== undefined ? { error: lastError } : {}) }
 }
 
 /**
