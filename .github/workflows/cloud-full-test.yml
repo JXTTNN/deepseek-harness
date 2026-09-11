@@ -65,6 +65,21 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      - name: Lint diagnostics (JSON)
+        if: always()
+        run: |
+          npx oxlint --format json . > oxlint-diagnostics.json 2>&1 || true
+          cat oxlint-diagnostics.json | head -c 1048576 > oxlint-diagnostics-truncated.json
+
+      - name: Upload lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oxlint-diagnostics
+          path: oxlint-diagnostics-truncated.json
+          if-no-files-found: ignore
+          retention-days: 7
+
   unit:
     name: Full unit suite
     runs-on: ubuntu-latest
