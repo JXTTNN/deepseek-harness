@@ -267,6 +267,10 @@ async function deliverMessage(
 /** Fire the localhost prompt trigger so a peer wakes up immediately (best-effort). */
 function triggerSession(target: string, from: string, msgId: string, message: string): void {
   try {
+    // Sanitize the message to prevent prompt injection: limit length and strip
+    // newlines/control chars that could break out of the prompt template or
+    // inject adversarial instructions into the peer's steering prompt.
+    const safeMessage = String(message).slice(0, 1000).replace(/[\r\n]+/g, ' ').trim()
     const postData = JSON.stringify({
       type: 'client-request',
       rpcId: `team-${msgId.slice(0, 8)}`,
@@ -274,7 +278,7 @@ function triggerSession(target: string, from: string, msgId: string, message: st
       payload: {
         sessionId: target,
         mode: 'steer',
-        content: [{ type: 'text', text: `!!! TEAM MESSAGE from ${from} (msgId: ${msgId}): ${message}\n\nYOU MUST CALL team_send(target: "${from}", reply_to: "${msgId}", message: "your complete response") RIGHT NOW. Do NOT type text. Do NOT call team_inbox. Do NOT describe. Just CALL team_send.` }],
+        content: [{ type: 'text', text: `!!! TEAM MESSAGE from ${from} (msgId: ${msgId}): ${safeMessage}\n\nYOU MUST CALL team_send(target: "${from}", reply_to: "${msgId}", message: "your complete response") RIGHT NOW. Do NOT type text. Do NOT call team_inbox. Do NOT describe. Just CALL team_send.` }],
       },
     })
     const req = httpRequest({
@@ -4480,5 +4484,6 @@ export function apply(ctx: Context): void {
     }),
   }))
 }
+
 
 
