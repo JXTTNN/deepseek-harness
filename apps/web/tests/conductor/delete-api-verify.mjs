@@ -15,11 +15,37 @@ const HOME = homedir()
 const sessionsRoot = join(HOME, '.dsh', 'sessions')
 const log = (...a) => console.log('[verify]', ...a)
 
-const rpc = (method, payload) => fetch(`${BASE}/api/${method}`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ type: 'client-request', rpcId: `v-${method}`, method, payload }),
-}).then(r => r.json())
+/**
+ * One RPC call. The carrier answers HTTP 200 for business errors, so a non-2xx
+ * means the carrier itself rejected us (404 unknown method, 415 bad media
+ * type, 400 non-JSON body, 500 handler crash).
+ */
+async function rpc(method, payload) {
+  const response = await fetch(`${BASE}/api/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'client-request', rpcId: `v-${method}`, method, payload }),
+  })
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`${method}: carrier HTTP ${response.status} ${detail}`.trim())
+  }
+  return response.json()
+}
+
+/**
+ * RPC that must succeed. Asserting here is the substantive part of this fix:
+ * the previous version printed `ok` without checking it, so an invalid payload
+ * surfaced much later as "session never materialized on disk".
+ */
+async function mustRpc(method, payload) {
+  const response = await rpc(method, payload)
+  if (response?.result?.ok !== true) {
+    const error = JSON.stringify(response?.result?.error ?? response).slice(0, 300)
+    throw new Error(`${method} failed: ${error}`)
+  }
+  return response.result.value
+}
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
@@ -37,16 +63,21 @@ function findSessionDir() {
 }
 
 try {
-  await rpc('workspace.create', { path: HOME })
-  const created = await rpc('session.create', { sessionId: SID, cwd: HOME })
-  log('session.create ok', created?.result?.ok, 'err', JSON.stringify(created?.result?.error ?? null).slice(0, 120))
+  await mustRpc('workspace.create', { path: HOME })
+  await mustRpc('session.create', { sessionId: SID, cwd: HOME })
+  log('session.create ok')
   await sleep(2500)
 
   let dir = findSessionDir()
   log('session dir before delete', dir)
   if (dir === null) {
     // Lazy materialization: no events yet, so no file. Prompt to force a write.
-    await rpc('session.prompt', { sessionId: SID, mode: 'default', content: [{ type: 'text', text: 'ping' }] })
+    // The wire schema pins mode to 'queue' | 'steer'; 'default' is rejected.
+    await mustRpc('session.prompt', {
+      sessionId: SID,
+      mode: 'queue',
+      content: [{ type: 'text', text: 'ping' }],
+    })
     await sleep(4000)
     dir = findSessionDir()
     log('session dir after prompt', dir)
@@ -56,8 +87,8 @@ try {
     process.exit(1)
   }
 
-  const del = await rpc('workspace.deleteSession', { sessionId: SID })
-  log('deleteSession ok', del?.result?.ok, 'err', JSON.stringify(del?.result?.error ?? null).slice(0, 120))
+  await mustRpc('workspace.deleteSession', { sessionId: SID })
+  log('workspace.deleteSession ok')
   await sleep(800)
 
   const after = findSessionDir()
