@@ -4,9 +4,10 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { mkdirSync, rmSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync, appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { execSync } from 'node:child_process'
 
 const TEST_WORKSPACE = join(tmpdir(), 'dsh-team-test')
 
@@ -70,7 +71,7 @@ describe('Team Mode E2E Tests', () => {
       expect(existsSync(join(TEST_WORKSPACE, '.team/inbox/solver-a.jsonl'))).toBe(true)
 
       // Verify content
-      const content = JSON.parse(require('fs').readFileSync(
+      const content = JSON.parse(readFileSync(
         join(TEST_WORKSPACE, '.team/inbox/solver-a.jsonl'), 'utf-8'
       ))
       expect(content.type).toBe('task')
@@ -106,7 +107,7 @@ describe('Team Mode E2E Tests', () => {
       // Verify task file
       expect(existsSync(join(TEST_WORKSPACE, '.team/tasks/task-001.json'))).toBe(true)
 
-      const saved = JSON.parse(require('fs').readFileSync(
+      const saved = JSON.parse(readFileSync(
         join(TEST_WORKSPACE, '.team/tasks/task-001.json'), 'utf-8'
       ))
       expect(saved.assignee).toBe('solver-a')
@@ -115,13 +116,13 @@ describe('Team Mode E2E Tests', () => {
 
     it('should complete a task and move to finished state', () => {
       const taskFile = join(TEST_WORKSPACE, '.team/tasks/task-001.json')
-      const task = JSON.parse(require('fs').readFileSync(taskFile, 'utf-8'))
+      const task = JSON.parse(readFileSync(taskFile, 'utf-8'))
 
       task.status = 'completed'
       task.completedAt = Date.now()
       writeFileSync(taskFile, JSON.stringify(task, null, 2))
 
-      const updated = JSON.parse(require('fs').readFileSync(taskFile, 'utf-8'))
+      const updated = JSON.parse(readFileSync(taskFile, 'utf-8'))
       expect(updated.status).toBe('completed')
       expect(updated.completedAt).toBeGreaterThan(0)
     })
@@ -137,13 +138,13 @@ describe('Team Mode E2E Tests', () => {
       }
 
       const memoryFile = join(TEST_WORKSPACE, '.team/memory/entries.jsonl')
-      require('fs').appendFileSync(memoryFile, JSON.stringify(memoryEntry) + '\n')
+      appendFileSync(memoryFile, JSON.stringify(memoryEntry) + '\n')
 
       expect(existsSync(memoryFile)).toBe(true)
     })
 
     it('should search memory by keyword', () => {
-      const entries = require('fs').readFileSync(
+      const entries = readFileSync(
         join(TEST_WORKSPACE, '.team/memory/entries.jsonl'), 'utf-8'
       ).trim().split('\n').filter(Boolean)
 
@@ -165,10 +166,10 @@ describe('Team Mode E2E Tests', () => {
 
       const thinkLog = join(TEST_WORKSPACE, '.team/think.log')
       thoughts.forEach(t => {
-        require('fs').appendFileSync(thinkLog, JSON.stringify(t) + '\n')
+        appendFileSync(thinkLog, JSON.stringify(t) + '\n')
       })
 
-      const logs = require('fs').readFileSync(thinkLog, 'utf-8')
+      const logs = readFileSync(thinkLog, 'utf-8')
       expect(logs).toContain('Three.js')
       expect(logs).toContain('real-time')
     })
@@ -180,16 +181,16 @@ describe('Team Mode E2E Tests', () => {
     it('should append memory entries (write/read)', () => {
       const logPath = join(memDir, 'agent-1.jsonl')
       const entry = { key: 'decision', value: 'use trimesh for offline 3D', timestamp: Date.now() }
-      require('fs').appendFileSync(logPath, JSON.stringify(entry) + '\n')
+      appendFileSync(logPath, JSON.stringify(entry) + '\n')
 
-      const line = require('fs').readFileSync(logPath, 'utf-8').trim()
+      const line = readFileSync(logPath, 'utf-8').trim()
       expect(JSON.parse(line).value).toContain('trimesh')
     })
 
     it('should return null for missing keys', () => {
       const logPath = join(memDir, 'empty-agent.jsonl')
       if (!existsSync(logPath)) return // no entries → search returns null
-      const lines = require('fs').readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean)
+      const lines = readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean)
       const matched = lines.filter((l: string) => {
         const e = JSON.parse(l)
         return e.key === 'nonexistent_key'
@@ -200,7 +201,7 @@ describe('Team Mode E2E Tests', () => {
 
   describe('3D Engine (engine3d, local)', () => {
     it('should respond to info action via CLI bridge', async () => {
-      const { execSync } = require('child_process')
+
       const input = JSON.stringify({ action: 'info' })
       try {
         const stdout = execSync(`echo '${input}' | python -m engine3d.cli`, {
@@ -217,7 +218,7 @@ describe('Team Mode E2E Tests', () => {
     })
 
     it('should build a sphere (local offline)', async () => {
-      const { execSync } = require('child_process')
+
       const input = JSON.stringify({ action: 'build', kind: 'sphere', params: { radius: 1 }, format: 'glb' })
       try {
         const stdout = execSync(`echo '${input}' | python -m engine3d.cli`, {
