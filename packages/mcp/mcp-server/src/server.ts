@@ -462,7 +462,7 @@ function registerPromptHandlers(ctx: Context, server: Server): void {
     const skills = ctx.get('skills')
     if (skills !== undefined) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line typescript/no-explicit-any
         const skillList = (await (skills as any).list()) as Array<{ name: string; description: string; invocation: { modelInvocable: boolean } }>
         for (const skill of skillList) {
           if (skill.invocation.modelInvocable) {
@@ -540,7 +540,7 @@ async function getSkillPrompt(
     throw new McpError(ErrorCode.MethodNotFound, 'skills service is not available')
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line typescript/no-explicit-any
     const skillList = (await (skills as any).list()) as Array<{ name: string }>
     const summary = skillList.find(s => s.name === skillName)
     if (summary === undefined) {
@@ -574,7 +574,7 @@ async function getSkillPrompt(
  */
 function registerSamplingHandler(ctx: Context, server: Server): void {
   server.setRequestHandler(CreateMessageRequestSchema, async (request) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line typescript/no-explicit-any
     const params = request.params as any
     const messages = (params.messages ?? []) as Array<{
       role: string
@@ -602,7 +602,7 @@ function registerSamplingHandler(ctx: Context, server: Server): void {
       const model = modelPreferences?.hints?.[0]?.name
 
       // The harness LLM service may expose generate/complete/chat; try each.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line typescript/no-explicit-any
       const llmAny = llm as any
       const generate = llmAny.generate ?? llmAny.complete ?? llmAny.chat
       if (typeof generate !== 'function') {
@@ -665,7 +665,7 @@ function registerRootsHandler(server: Server): void {
     process.on('SIGUSR1', () => {
       try {
         // The MCP SDK Server exposes notification sending via `notification`.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line typescript/no-explicit-any
         ;(server as any).notification({ method: 'notifications/roots/list_changed' })
       } catch {
         // Server may be closed; ignore.
