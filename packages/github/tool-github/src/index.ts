@@ -9,8 +9,8 @@
  * @module @deepseek-ai/dsh-tool-github
  */
 
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, statSync } from 'node:fs'
+import { join, homedir } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -46,16 +46,26 @@ function getApiBase(): string {
 
 /** Resolve the GitHub token from env or credentials. */
 function token(): string {
-  const tok = process.env.GITHUB_TOKEN
-  if (tok) return tok
-  // Try reading from DSH credentials
+  // Priority 1: standard GitHub CLI env vars (GITHUB_TOKEN, GH_TOKEN)
+  const envToken = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
+  if (envToken) return envToken
+  // Priority 2: read from DSH credentials file — but verify file permissions
+  // are not world/group readable to avoid leaking the token.
+  const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  const credPath = join(home, '.credentials.yaml')
   try {
-    const home = process.env.DSH_HOME ?? join(process.env.HOME ?? process.env.USERPROFILE ?? '', '.dsh')
-    const raw = readFileSync(join(home, '.credentials.yaml'), 'utf-8')
+    const stat = statSync(credPath)
+    const mode = stat.mode & 0o777
+    if (mode & 0o077) {
+      throw new Error(`credentials file ${credPath} is world/group readable (mode ${mode.toString(8)})`)
+    }
+    const raw = readFileSync(credPath, 'utf-8')
     const m = raw.match(/GITHUB_TOKEN:\s*(\S+)/)
     if (m && m[1]) return m[1]
-  } catch { /* not found */ }
-  throw new Error('GITHUB_TOKEN not set. Set it as an environment variable or add it to ~/.dsh/.credentials.yaml')
+    throw new Error('GITHUB_TOKEN not found in credentials file')
+  } catch (e) {
+    throw new Error(`Cannot resolve GitHub token: ${(e as Error).message}. Set GITHUB_TOKEN or GH_TOKEN env var, or fix ~/.dsh/.credentials.yaml`)
+  }
 }
 
 /** Call GitHub REST API. Uses custom API endpoint when GITHUB_API_URL is set. */
@@ -73,7 +83,14 @@ async function gh(path: string, init?: RequestInit & { method?: string; body?: s
     },
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(`GitHub API ${res.status}: ${JSON.stringify(data)}`)
+  if (!res.ok) {
+    // Do not leak full API response (may contain internal details, URLs, etc.).
+    // Expose only the status code and a short message field if present.
+    const errMsg = typeof data === 'object' && data !== null && 'message' in data
+      ? String((data as any).message).slice(0, 200)
+      : `HTTP ${res.status}`
+    throw new Error(`GitHub API error: ${errMsg}`)
+  }
   return data
 }
 
@@ -150,6 +167,12 @@ export function apply(ctx: Context): void {
       render: (_a, v) => [{ type: 'text' as const, text: `File ${(v as any).path} (${(v as any).size} bytes):\n${(v as any).content}` }],
     },
     execute: async (args) => {
+      // Reject path traversal: no segment may be ".." (absolute paths and "."
+      // are harmless after segment encoding, but ".." could escape the repo root
+      // on some API proxies/mirrors that resolve paths locally).
+      if (typeof args.path === 'string' && args.path.split('/').some(seg => seg === '..')) {
+        throw new Error('Path traversal not allowed')
+      }
       const ref = args.ref ? `?ref=${encodeURIComponent(args.ref)}` : ''
       // Encode each path segment, NOT the whole path: encodeURIComponent on the
       // full path would turn "src/index.ts" into "src%2Findex.ts" and the API
