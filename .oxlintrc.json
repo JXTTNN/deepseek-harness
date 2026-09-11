@@ -499,7 +499,8 @@
         "packages/extensions/tool-test-impact/src/**/*.{ts,tsx}",
         "packages/extensions/tool-workflow-run/src/**/*.{ts,tsx}",
         "packages/team/team-comm/src/**/*.{ts,tsx}",
-        "scripts/test/**/*.{ts,tsx}"
+        "scripts/test/**/*.{ts,tsx}",
+        "packages/web/web-search-searxng/src/**/*.{ts,tsx}"
       ],
       "rules": {
         "typescript/no-explicit-any": "off",
