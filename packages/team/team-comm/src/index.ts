@@ -2743,7 +2743,7 @@ export function apply(ctx: Context): void {
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
-      render: (_args, value) => {
+      render: (_args: any, value: any) => {
         const v = value as unknown as { ok: boolean; role?: string; leader?: string; isLeader?: boolean; leaseExpires?: string; elections?: ElectionRecord[]; error?: string }
         if (!v.ok) return [{ type: 'text' as const, text: `team_elect failed: ${v.error ?? 'unknown error'}` }]
         if (v.elections !== undefined) {
@@ -2755,7 +2755,7 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: `Role "${v.role ?? ''}" leader: ${v.leader?.slice(0, 8) ?? 'none'}...${me} (lease expires ${v.leaseExpires ?? 'n/a'})` }]
       },
     },
-    async execute(args, exec) {
+    async execute(args: any, exec: any) {
       const agent = exec.agent
       if (!agent) throw new Error('team_elect: no agent context')
       try { writePresence(agent) } catch { /* best-effort */ }
@@ -2844,7 +2844,7 @@ export function apply(ctx: Context): void {
           throw new Error(`team_elect: unknown action "${String(args.action)}"`)
       }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Election ${args.action}`, kind: 'other' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Election ${args.action}`, kind: 'other' as const }),
   }))
 
   // -- team_role (F6: typed role definitions) --
@@ -2929,7 +2929,7 @@ export function apply(ctx: Context): void {
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
-      render: (_args, value) => {
+      render: (_args: any, value: any) => {
         const v = value as unknown as { ok: boolean; role?: RoleDefinition; roles?: RoleDefinition[]; assignment?: { session: string; role: string }; assignments?: RoleAssignments; error?: string }
         if (!v.ok) return [{ type: 'text' as const, text: `team_role failed: ${v.error ?? 'unknown error'}` }]
         if (v.roles !== undefined) {
@@ -2948,7 +2948,7 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: 'Role operation completed.' }]
       },
     },
-    async execute(args, exec) {
+    async execute(args: any, exec: any) {
       const agent = exec.agent
       if (!agent) throw new Error('team_role: no agent context')
       try { writePresence(agent) } catch { /* best-effort */ }
@@ -3032,7 +3032,7 @@ export function apply(ctx: Context): void {
           throw new Error(`team_role: unknown action "${String(args.action)}"`)
       }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Role ${args.action}`, kind: 'other' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Role ${args.action}`, kind: 'other' as const }),
   }))
 
   // -- team_auto_assign (F10: adaptive task assignment) --
@@ -3074,13 +3074,13 @@ export function apply(ctx: Context): void {
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
-      render: (_args, value) => {
+      render: (_args: any, value: any) => {
         const v = value as unknown as { ok: boolean; assignedSession?: string; reason?: string; taskId?: string; error?: string }
         if (!v.ok) return [{ type: 'text' as const, text: `team_auto_assign failed: ${v.error ?? 'unknown error'}` }]
         return [{ type: 'text' as const, text: `Assigned task ${v.taskId?.slice(0, 8) ?? ''}... to ${v.assignedSession?.slice(0, 8) ?? 'none'}... (${v.reason ?? 'no reason'})` }]
       },
     },
-    async execute(args, exec) {
+    async execute(args: any, exec: any) {
       const agent = exec.agent
       if (!agent) throw new Error('team_auto_assign: no agent context')
       try { writePresence(agent) } catch { /* best-effort */ }
@@ -3215,7 +3215,7 @@ export function apply(ctx: Context): void {
 
       return { ok: true, assignedSession, reason, taskId }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Auto-assign ${args.strategy}`, kind: 'other' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Auto-assign ${args.strategy}`, kind: 'other' as const }),
   }))
 
   // -- team_agent_define (declarative agent definitions with hot reload) --
@@ -3278,7 +3278,7 @@ export function apply(ctx: Context): void {
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
-      render: (_args, value) => {
+      render: (_args: any, value: any) => {
         const v = value as unknown as { ok: boolean; spec?: AgentSpec; specs?: AgentSpec[]; error?: string }
         if (!v.ok) return [{ type: 'text' as const, text: `team_agent_define failed: ${v.error ?? 'unknown error'}` }]
         if (v.specs !== undefined) {
@@ -3304,7 +3304,7 @@ export function apply(ctx: Context): void {
         return [{ type: 'text' as const, text: 'Agent spec operation completed.' }]
       },
     },
-    async execute(args, exec) {
+    async execute(args: any, exec: any) {
       const agent = exec.agent
       if (!agent) throw new Error('team_agent_define: no agent context')
       try { writePresence(agent) } catch { /* best-effort */ }
@@ -3407,7 +3407,7 @@ export function apply(ctx: Context): void {
           throw new Error(`team_agent_define: unknown action "${String(args.action)}"`)
       }
     },
-    presentCall: args => ({ card: 'generic' as const, title: `Agent ${args.action}`, kind: 'other' as const }),
+    presentCall: (args: any) => ({ card: 'generic' as const, title: `Agent ${args.action}`, kind: 'other' as const }),
   }))
 
   // ── session_delete tool ───────────────────────────────────────────────────
