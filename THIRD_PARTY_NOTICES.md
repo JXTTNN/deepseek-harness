@@ -180,6 +180,7 @@ Direct dependencies of the `pyproject.toml` manifests, plus `uv` as the developm
 | --- | --- | --- |
 | [`hatchling`](https://github.com/pypa/hatch) | MIT | build backend |
 | [`pydantic`](https://github.com/pydantic/pydantic) | MIT | runtime dependency of `deepseek-harness-sdk` |
+| [`trimesh`](https://github.com/mikedh/trimesh) | MIT | runtime dependency of engine3d |
 | [`pytest`](https://github.com/pytest-dev/pytest) | MIT | test-only |
 | [`uv`](https://github.com/astral-sh/uv) | MIT / Apache-2.0 | development workflow tool |
 
@@ -192,3 +193,4 @@ Direct dependencies of the `pyproject.toml` manifests, plus `uv` as the developm
 ## First-party native packages
 
 `@deepseek-ai/node-addon-landlock-run` (and its platform packages) is built and released from this repository under BSD 3-Clause. It is listed here for completeness; it is first-party, not third-party.
+
