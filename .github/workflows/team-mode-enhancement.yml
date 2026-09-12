@@ -83,10 +83,10 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
 
       - name: Type check
-        run: pnpm run typecheck || true
+        run: pnpm run typecheck
 
       - name: Run unit tests
-        run: pnpm test || true
+        run: pnpm test
 
   # =========================================================================
   # 3. Team Mode 模拟测试 (无需 API Key)
@@ -314,7 +314,7 @@ jobs:
       - name: 测试 AV Editor 插件加载
         run: |
           echo "🚀 测试 AV Editor Plugin 加载"
-          pnpm exec tsc --noEmit packages/extensions/plugin-av-editor/src/index.ts || echo "语法检查忽略"
+          pnpm exec tsc --noEmit packages/extensions/plugin-av-editor/src/index.ts
           echo "  ✓ 插件 TypeScript 合法"
 
   # =========================================================================
