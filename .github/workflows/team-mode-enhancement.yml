@@ -314,7 +314,7 @@ jobs:
       - name: 测试 AV Editor 插件加载
         run: |
           echo "🚀 测试 AV Editor Plugin 加载"
-          pnpm exec tsc --noEmit --ignoreConfig packages/extensions/plugin-av-editor/src/index.ts
+          pnpm exec tsc --noEmit -p packages/extensions/plugin-av-editor/tsconfig.json
           echo "  ✓ 插件 TypeScript 合法"
 
   # =========================================================================
