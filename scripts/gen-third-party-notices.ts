@@ -87,6 +87,7 @@ const PYTHON_METADATA: Record<string, { license: string; repo: string; role: str
   hatchling: { license: 'MIT', repo: 'https://github.com/pypa/hatch', role: 'build backend' },
   pytest: { license: 'MIT', repo: 'https://github.com/pytest-dev/pytest', role: 'test-only' },
   numpy: { license: 'BSD-3-Clause', repo: 'https://github.com/numpy/numpy', role: 'runtime dependency of deepseek-harness-sdk' },
+  trimesh: { license: 'MIT', repo: 'https://github.com/mikedh/trimesh', role: 'runtime dependency of engine3d' },
 }
 
 type PythonMetadata = typeof PYTHON_METADATA
@@ -774,3 +775,4 @@ function main(): void {
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) {
   main()
 }
+
