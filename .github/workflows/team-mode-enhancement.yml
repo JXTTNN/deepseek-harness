@@ -311,6 +311,9 @@ jobs:
           rm -f /tmp/test-video.mp4 /tmp/out.mp4 /tmp/audio.mp3
           echo "  ✓ 测试清理完成"
 
+      - name: Build dependencies for type check
+        run: pnpm run build
+
       - name: 测试 AV Editor 插件加载
         run: |
           echo "🚀 测试 AV Editor Plugin 加载"
