@@ -68,6 +68,7 @@ import * as ToolDependencyGraph from '@deepseek-ai/dsh-tool-dependency-graph'
 import * as ToolDiffMerge from '@deepseek-ai/dsh-tool-diff-merge'
 import * as ToolProgrammingAssistant from '@deepseek-ai/dsh-tool-programming-assistant'
 import * as ToolSemanticSearch from '@deepseek-ai/dsh-tool-semantic-search'
+import * as ToolGithub from '@deepseek-ai/dsh-tool-github'
 import * as ToolTestImpact from '@deepseek-ai/dsh-tool-test-impact'
 import * as ToolWorkflowRun from '@deepseek-ai/dsh-tool-workflow-run'
 
@@ -623,6 +624,17 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note: 'workflow_run executes CI/CD workflow steps and returns results.',
   },
+  {
+    pkg: '@deepseek-ai/dsh-tool-github',
+    dir: 'tool-github',
+    source: 'packages/github/tool-github/src/index.ts',
+    requires: ['ctx.tools'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(ToolGithub)
+    },
+    note: 'GitHub integration tools for issue tracking, code search, file reading, and PR management.',
+  },
 ]
 
 /** One package's contribution to the catalog: its schemas plus attribution. */
@@ -829,3 +841,4 @@ async function main(): Promise<void> {
 if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
   await main()
 }
+
