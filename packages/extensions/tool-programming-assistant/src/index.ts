@@ -65,6 +65,7 @@ export function apply(ctx: Context): void {
     output: {
       schema: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           issues: { type: 'array', items: { type: 'string' } },
           errorCount: { type: 'integer' },
@@ -106,8 +107,9 @@ export function apply(ctx: Context): void {
     output: {
       schema: {
         type: 'object',
+        additionalProperties: false,
         properties: {
-          entries: { type: 'array', items: { type: 'object', properties: { kind: { type: 'string' }, name: { type: 'string' }, line: { type: 'integer' } } } },
+          entries: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { kind: { type: 'string' }, name: { type: 'string' }, line: { type: 'integer' } } } },
         },
       },
       render: (_a: any, v: any) => [{
@@ -159,6 +161,7 @@ export function apply(ctx: Context): void {
     output: {
       schema: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           summary: { type: 'string' },
           exports: { type: 'array', items: { type: 'string' } },
@@ -188,3 +191,4 @@ export function apply(ctx: Context): void {
     presentCall: (args: any) => ({ card: 'generic' as const, title: `Explain ${basename(String(args.path))}`, kind: 'read' as const }),
   }))
 }
+
