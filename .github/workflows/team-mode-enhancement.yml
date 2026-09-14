@@ -42,7 +42,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           cache: pnpm
@@ -75,7 +75,7 @@ jobs:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           cache: pnpm
@@ -106,7 +106,7 @@ jobs:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           cache: pnpm
@@ -148,7 +148,7 @@ jobs:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           cache: pnpm
@@ -228,7 +228,7 @@ jobs:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           cache: pnpm
@@ -268,7 +268,7 @@ jobs:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           cache: pnpm
@@ -348,7 +348,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         if: steps.api-check.outputs.ready == 'true'
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         if: steps.api-check.outputs.ready == 'true'
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
