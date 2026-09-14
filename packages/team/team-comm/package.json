@@ -1,0 +1,111 @@
+{
+  "name": "@deepseek-ai/dsh-team-comm",
+  "description": "Cross-session team communication: team_send, team_inbox, and team_list tools for multi-agent collaboration between independent Team-mode sessions",
+  "version": "0.1.0-rc.7",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/team/team-comm"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./approval/durable": {
+      "types": "./lib/types/approval/durable.d.ts",
+      "default": "./lib/approval/durable.js"
+    },
+    "./governance": {
+      "types": "./lib/types/governance.d.ts",
+      "default": "./lib/governance.js"
+    },
+    "./execution-receipt": {
+      "types": "./lib/types/execution-receipt.d.ts",
+      "default": "./lib/execution-receipt.js"
+    },
+    "./recovery": {
+      "types": "./lib/types/recovery.d.ts",
+      "default": "./lib/recovery.js"
+    },
+    "./plan-replay": {
+      "types": "./lib/types/plan-replay.d.ts",
+      "default": "./lib/plan-replay.js"
+    },
+    "./shared": {
+      "types": "./lib/types/shared.d.ts",
+      "default": "./lib/shared.js"
+    },
+    "./github-skills": {
+      "types": "./lib/types/github-skills.d.ts",
+      "default": "./lib/github-skills.js"
+    },
+    "./election": {
+      "types": "./lib/types/election.d.ts",
+      "default": "./lib/election.js"
+    },
+    "./spawn": {
+      "types": "./lib/types/spawn.d.ts",
+      "default": "./lib/spawn.js"
+    },
+    "./workflow": {
+      "types": "./lib/types/workflow.d.ts",
+      "default": "./lib/workflow.js"
+    },
+    "./audit": {
+      "types": "./lib/types/audit.d.ts",
+      "default": "./lib/audit.js"
+    },
+    "./permission": {
+      "types": "./lib/types/permission.d.ts",
+      "default": "./lib/permission.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json",
+    "./contract": "./dist/contract.js"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/invariant.js",
+    "lib/approval/durable.js",
+    "lib/governance.js",
+    "lib/execution-receipt.js",
+    "lib/recovery.js",
+    "lib/plan-replay.js",
+    "lib/shared.js",
+    "lib/github-skills.js",
+    "lib/election.js",
+    "lib/spawn.js",
+    "lib/workflow.js",
+    "lib/audit.js",
+    "lib/permission.js",
+    "lib/types/**/*.d.ts",
+    "contract.js"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
+  }
+}

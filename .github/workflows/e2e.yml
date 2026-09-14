@@ -1,0 +1,153 @@
+﻿name: E2E (real API)
+
+# Real-API end-to-end suite (`pnpm run test:e2e`). Supports any OpenAI-compatible
+# API via DEEPSEEK_BASE_URL (defaults to https://api.deepseek.com). When using a
+# non-DeepSeek endpoint, official-only suites (model-specific assertions) are
+# auto-skipped by vitest.e2e.config.ts; generic agent-flow e2e (fs, shell,
+# headless, web) runs against whatever endpoint is configured.
+#
+# Custom API configuration:
+#   - workflow_dispatch inputs: api_base_url, model (override at trigger time)
+#   - Secrets: CUSTOM_API_KEY or DEEPSEEK_API_KEY_EXTERNAL or DSH_API_KEY
+#   - Base URL: inputs.api_base_url or secrets.DSH_BASE_URL or default
+#
+# pull_request IS a trigger, but GitHub withholds repo secrets from BOTH forked
+# PRs and Dependabot PRs (the latter are same-repo, fork==false, but still
+# keyless). The job-level `if:` below skips the whole job for those untrusted
+# PRs. The Dependabot test keys on the PR AUTHOR (pull_request.user.login), not
+# github.actor (the run trigger) — a maintainer reopening a Dependabot PR would
+# make github.actor human while the PR is still keyless. When the job runs, the
+# secret is expected, so the preflight hard-fails if it's missing (a missing
+# secret would otherwise make the self-skipping suite report a false green). A
+# job skipped by a job-level `if:` reports as a SUCCESSFUL check, so this
+# workflow is safe to use as a required status check if desired.
+#
+# SECURITY — NEVER change this trigger to `pull_request_target`. `pull_request`
+# checks out and runs the PR's HEAD code WITHOUT secrets for forks, which is what
+# keeps an untrusted fork from exfiltrating the key. `pull_request_target` runs
+# in the BASE repo's context WITH secrets while still able to check out untrusted
+# fork code — a textbook key-leak vector, especially once this repo is public.
+# The fork/secret model and its public-repo implications are recorded in
+# .agents/notes/implemented/testing/2026-06-19-real-api-e2e-ci.md.
+#
+# Note: scheduled triggers are auto-disabled after 60 days of repo inactivity;
+# push/pull_request/workflow_dispatch act as backstops.
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Custom API base URL (e.g. https://api.openai.com/v1, https://api.deepseek.com). Leave empty to use secret/default.'
+        required: false
+        type: string
+        default: ''
+      model:
+        description: 'Custom model name override (e.g. deepseek-chat, gpt-4o). Leave empty for default.'
+        required: false
+        type: string
+        default: ''
+      max_workers:
+        description: 'Max parallel test workers (default 4)'
+        required: false
+        type: string
+        default: '4'
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    # 00:17 UTC nightly = 08:17 Asia/Shanghai — off the top-of-hour cron stampede.
+    - cron: '17 0 * * *'
+
+# Cancel a superseded PR run (it is on a stale commit); never cancel a
+# push/schedule run — it is already producing the post-merge/nightly signal.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least privilege: this job only reads the repo to run tests.
+permissions:
+  contents: read
+
+env:
+  # CI runs must never report to the production telemetry endpoint baked
+  # into apps/cli/cordis.yml (AppCLIEntry disables the row when set).
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    name: e2e
+    # Run on every trusted event. Skip untrusted PRs (forks + Dependabot) where
+    # the secret is withheld — they would otherwise hard-fail the preflight.
+    if: >-
+      github.event_name != 'pull_request'
+      || !(github.event.pull_request.head.repo.fork || github.event.pull_request.user.login == 'dependabot[bot]')
+    # Bounded file parallelism (DSH_E2E_MAX_WORKERS), 120s/test, retry 2. 45m
+    # still bounds retry storms against a slow API while the happy path fans out.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+
+      # The with-key escalation e2e self-skips without a usable runner. Install
+      # bwrap so trusted CI exercises it; the userns knob is best-effort and the
+      # test's functional probe decides.
+      - name: Install bubblewrap (unrestrict userns)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
+            || echo "apparmor userns knob absent — the functional probe decides"
+
+      # Guard against a false green: the e2e suites self-skip when the key is
+      # absent, so a missing/misconfigured secret would otherwise pass as
+      # "all skipped". This job only runs on trusted events (the `if:` above
+      # excludes keyless PRs), so the secret MUST be present — fail loudly if not.
+      - name: Preflight (require API key)
+        env:
+          # API key fallback chain: CUSTOM_API_KEY for non-DeepSeek providers,
+          # then the DeepSeek-specific secrets, then the Cloud Detect convention.
+          DEEPSEEK_API_KEY: ${{ secrets.CUSTOM_API_KEY || secrets.DEEPSEEK_API_KEY_EXTERNAL || secrets.DSH_API_KEY || secrets.DEEPSEEK_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+            echo "::error::API key is empty. Configure one of: CUSTOM_API_KEY, DEEPSEEK_API_KEY_EXTERNAL, DSH_API_KEY, DEEPSEEK_API_KEY"
+            exit 1
+          fi
+          echo "API key present."
+          # Show which base URL will be used (without exposing the key)
+          BASE_URL="${{ inputs.api_base_url || secrets.DSH_BASE_URL || secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}"
+          echo "Using API base URL: $BASE_URL"
+
+      # The e2e suites boot the example bins in `lib` mode (DSH_EXAMPLE_MODE=lib):
+      # the built artifact under plain Node, resolving plugins through real package
+      # exports — the shape a real consumer runs. That requires a prior build.
+      - name: Build (lib for the e2e example bins)
+        run: pnpm run build
+
+      # Real-API end-to-end tests. Supports any OpenAI-compatible API.
+      # DEEPSEEK_BASE_URL can point to any endpoint; non-official endpoints
+      # auto-skip official-only suites (model-specific assertions) via
+      # vitest.e2e.config.ts. Generic e2e (fs, shell, headless, web) runs
+      # against whatever endpoint is configured.
+      - name: E2E tests (real API)
+        env:
+          # API key fallback chain: CUSTOM_API_KEY for non-DeepSeek providers,
+          # then the DeepSeek-specific secrets, then the Cloud Detect convention.
+          DEEPSEEK_API_KEY: ${{ secrets.CUSTOM_API_KEY || secrets.DEEPSEEK_API_KEY_EXTERNAL || secrets.DSH_API_KEY || secrets.DEEPSEEK_API_KEY }}
+          # Base URL: workflow_dispatch input overrides secrets, which override default.
+          DEEPSEEK_BASE_URL: ${{ inputs.api_base_url || secrets.DSH_BASE_URL || secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
+          # Custom model override (empty string for default model).
+          DSH_MODEL: ${{ inputs.model || '' }}
+          # Parallel workers: workflow_dispatch input or default 4.
+          DSH_E2E_MAX_WORKERS: ${{ inputs.max_workers || '4' }}
+          DSH_EXAMPLE_MODE: lib
+        run: pnpm run test:e2e
