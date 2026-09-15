@@ -12,7 +12,7 @@ import {
   failPipeline,
   cancelPipeline,
   deletePipeline,
-  type Pipeline,
+
 } from '../src/pipeline'
 
 const TMP = join(tmpdir(), `pipeline-test-${Date.now()}`)
