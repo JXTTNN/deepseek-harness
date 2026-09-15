@@ -84,6 +84,10 @@
     "./consensus": {
       "types": "./lib/types/consensus.d.ts",
       "default": "./lib/consensus.js"
+    },
+    "./budget": {
+      "types": "./lib/types/budget.d.ts",
+      "default": "./lib/budget.js"
     }
   },
   "files": [
@@ -105,7 +109,8 @@
     "contract.js",
     "sync.js",
     "pipeline.js",
-    "consensus.js"
+    "consensus.js",
+    "budget.js"
   ],
   "license": "MIT",
   "peerDependencies": {
