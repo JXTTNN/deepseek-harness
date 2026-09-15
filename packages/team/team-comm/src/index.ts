@@ -93,6 +93,13 @@ import {
   type ContractStatus,
 } from './contract'
 
+// Sync helpers (extracted to sync.ts)
+import {
+  claimFile_, readFileClaims, getFileSyncStatus,
+  listAllClaims, releaseClaim, releaseAllClaims,
+  type ClaimType,
+} from './sync'
+
 // Re-export functions that were previously defined in this module
 export { tokenizeForMemory, rankMemoryEntries } from './shared'
 
@@ -4193,6 +4200,103 @@ export function apply(ctx: Context): void {
       card: 'generic' as const,
       title: 'Contract ' + args.action + (args.id ? ': ' + args.id : ''),
       kind: args.action === 'create' ? 'create' : args.action === 'cancel' ? 'delete' : 'read',
+    }),
+  }))
+
+  // ==========================================================================
+  // -- File Sync: coordinate file access across agents ----------------------
+  // ==========================================================================
+
+  ctx.tools.register(_defineToolAny({
+    name: 'team_sync',
+    description:
+      'File synchronization and locking. Prevents multiple agents from writing the same file'
+      + ' simultaneously. Actions: claim (claim a file for read/write access),'
+      + ' status (check if a file is locked), read (read claims on a file),'
+      + ' list (list all active claims), release (release a specific claim),'
+      + ' releaseAll (release all claims owned by the calling session).'
+      + ' Claims auto-expire after 10 minutes.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['claim', 'status', 'read', 'list', 'release', 'releaseAll'], description: 'Sync operation.' },
+      filePath: { type: 'string', description: 'File path to claim/check/read (claim/status/read).' },
+      claimType: { type: 'string', enum: ['read', 'write'], description: 'Claim type: read (shared) or write (exclusive). Required for claim.' },
+      claimId: { type: 'string', description: 'Claim id to release (release).' },
+      ttlMs: { type: 'number', description: 'Claim TTL in ms (claim, optional, default 600000).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          action: { type: 'string', required: true },
+          claim: { type: 'json' },
+          claims: { type: 'array', items: { type: 'json' } },
+          status: { type: 'json' },
+          released: { type: 'boolean' },
+          releasedCount: { type: 'number' },
+        },
+      },
+      render: (args: any, value: any) => [{
+        type: 'text',
+        text: args.action === 'claim'
+          ? 'claimed ' + args.filePath + ' for ' + args.claimType + ' (id: ' + value.claim?.id + ')'
+          : args.action === 'status'
+            ? args.filePath + (value.status?.locked ? ' LOCKED' : ' available')
+            : args.action === 'read'
+              ? (value.claims?.length ?? 0) + ' claim(s) on ' + args.filePath
+              : args.action === 'list'
+                ? (value.claims?.length ?? 0) + ' active claim(s)'
+                : args.action === 'release'
+                  ? value.released ? 'claim ' + args.claimId + ' released' : 'claim ' + args.claimId + ' not found or not owned'
+                  : value.releasedCount + ' claim(s) released',
+      }],
+    },
+    async execute(args: any, exec: any) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_sync: no agent context')
+
+      if (args.action === 'claim') {
+        if (!args.filePath) throw new Error('team_sync claim: filePath required')
+        if (!args.claimType) throw new Error('team_sync claim: claimType required (read or write)')
+        const claim = claimFile_(agent, args.filePath, args.claimType as ClaimType,
+          ...(args.ttlMs !== undefined ? [args.ttlMs] : []))
+        return { action: 'claim', claim }
+      }
+
+      if (args.action === 'status') {
+        if (!args.filePath) throw new Error('team_sync status: filePath required')
+        const status = getFileSyncStatus(agent, args.filePath)
+        return { action: 'status', status }
+      }
+
+      if (args.action === 'read') {
+        if (!args.filePath) throw new Error('team_sync read: filePath required')
+        const claims = readFileClaims(agent, args.filePath)
+        return { action: 'read', claims }
+      }
+
+      if (args.action === 'list') {
+        const claims = listAllClaims(agent)
+        return { action: 'list', claims }
+      }
+
+      if (args.action === 'release') {
+        if (!args.claimId) throw new Error('team_sync release: claimId required')
+        const released = releaseClaim(agent, args.claimId)
+        return { action: 'release', released }
+      }
+
+      if (args.action === 'releaseAll') {
+        const releasedCount = releaseAllClaims(agent)
+        return { action: 'releaseAll', releasedCount }
+      }
+
+      throw new Error('team_sync: unknown action ' + args.action)
+    },
+    presentCall: (args: any) => ({
+      card: 'generic' as const,
+      title: 'Sync ' + args.action + (args.filePath ? ': ' + args.filePath : ''),
+      kind: args.action === 'claim' ? 'create' : args.action === 'release' || args.action === 'releaseAll' ? 'delete' : 'read',
     }),
   }))
 
