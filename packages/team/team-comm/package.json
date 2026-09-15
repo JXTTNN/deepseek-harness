@@ -72,8 +72,15 @@
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
-    "./contract": "./dist/contract.js",
-    "./sync": "./dist/sync.js"
+    "./contract": {
+      "types": "./lib/types/contract.d.ts",
+      "default": "./lib/contract.js"
+    },
+    "./sync": {
+      "types": "./lib/types/sync.d.ts",
+      "default": "./lib/sync.js"
+    },
+    "./pipeline": "./dist/pipeline.js"
   },
   "files": [
     "lib/index.js",
@@ -92,7 +99,8 @@
     "lib/permission.js",
     "lib/types/**/*.d.ts",
     "contract.js",
-    "sync.js"
+    "sync.js",
+    "pipeline.js"
   ],
   "license": "MIT",
   "peerDependencies": {
