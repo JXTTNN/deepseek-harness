@@ -174,7 +174,10 @@ export function listAllClaims(
       // skip corrupted
     }
   }
-  return claims.sort((a, b) => a.claimedAt.localeCompare(b.claimedAt))
+  return claims.sort((a, b) => {
+    const cmp = a.claimedAt.localeCompare(b.claimedAt)
+    return cmp !== 0 ? cmp : a.id.localeCompare(b.id)
+  })
 }
 
 /** Release a specific claim by id. */
