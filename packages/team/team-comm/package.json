@@ -88,6 +88,10 @@
     "./budget": {
       "types": "./lib/types/budget.d.ts",
       "default": "./lib/budget.js"
+    },
+    "./handoff": {
+      "types": "./dist/handoff.d.ts",
+      "import": "./dist/handoff.js"
     }
   },
   "files": [
