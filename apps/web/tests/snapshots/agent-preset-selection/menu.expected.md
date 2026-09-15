@@ -1,0 +1,8 @@
+- menu:
+  - menuitem "Team 模式 团队协作模式：一个 DeepSeek 队长 Agent 拆解任务、派出多个子 Agent 并行协作、互相监督、共享目标记忆，像 Claude Code 多会话协同一样完成工作。"
+  - menuitem "Standard mode Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.":
+    - text: Standard mode Full coding agent with file editing, shell, file and web search, skills, planning, goals, subagents, and workflows.
+    - img
+  - menuitem "PTC mode All Standard mode capabilities, with tools exposed through the Code Mode SDK so the model can combine multi-step operations in one TypeScript program."
+  - menuitem "Minimal mode Two-tool coding agent with persistent bash and str_replace_editor."
+  - menuitem "Creator mode Built for creating custom agent presets, with all Standard mode capabilities plus runtime inspection, plugin experiments, and preset-authoring guidance."
