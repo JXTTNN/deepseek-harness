@@ -119,7 +119,7 @@ import {
 
 // Budget helpers (extracted to budget.ts)
 import {
-  createBudget, readBudget, findBudgetBySession,
+  createBudget, readBudget,
   listBudgets, recordUsage, checkBudget,
   updateBudget, resetUsage, deleteBudget,
   type BudgetStatus,
