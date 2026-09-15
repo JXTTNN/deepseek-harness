@@ -80,7 +80,11 @@
       "types": "./lib/types/sync.d.ts",
       "default": "./lib/sync.js"
     },
-    "./pipeline": "./dist/pipeline.js"
+    "./pipeline": "./dist/pipeline.js",
+    "./consensus": {
+      "types": "./lib/types/consensus.d.ts",
+      "default": "./lib/consensus.js"
+    }
   },
   "files": [
     "lib/index.js",
@@ -100,7 +104,8 @@
     "lib/types/**/*.d.ts",
     "contract.js",
     "sync.js",
-    "pipeline.js"
+    "pipeline.js",
+    "consensus.js"
   ],
   "license": "MIT",
   "peerDependencies": {
