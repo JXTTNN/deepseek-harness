@@ -125,6 +125,15 @@ import {
   type BudgetStatus,
 } from './budget'
 
+// Handoff helpers (extracted to handoff.ts)
+import {
+  createHandoff, readHandoff, listHandoffs,
+  acceptHandoff, rejectHandoff, completeHandoff,
+  cancelHandoff, deleteHandoff,
+  type HandoffStatus,
+} from './handoff'
+
+
 // Re-export functions that were previously defined in this module
 export { tokenizeForMemory, rankMemoryEntries } from './shared'
 
@@ -4736,3 +4745,120 @@ export function apply(ctx: Context): void {
   }))
 
 }
+
+
+  // ==========================================================================
+  // -- Handoff: formal task ownership transfer between agents ----------------
+  // ==========================================================================
+
+  ctx.tools.register(_defineToolAny({
+    name: 'team_handoff',
+    description:
+      'Formal task ownership transfer between peer agents. When an agent is stuck,'
+      + ' overloaded, or needs to transfer an ongoing task to another agent with better'
+      + ' capabilities, a handoff provides a structured transfer with working context.'
+      + ' Actions: create (initiate a handoff), accept (target session accepts),'
+      + ' reject (target session rejects), complete (accepting agent marks done),'
+      + ' cancel (originator cancels), list (list handoffs), read (read a handoff),'
+      + ' delete (delete a handoff). Handoffs stored in .team/handoffs/.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['create', 'accept', 'reject', 'complete', 'cancel', 'list', 'read', 'delete'], description: 'Handoff operation.' },
+      id: { type: 'string', description: 'Handoff id (accept/reject/complete/cancel/read/delete).' },
+      taskId: { type: 'string', description: 'Task id being transferred (create).' },
+      toSession: { type: 'string', description: 'Target session id (create).' },
+      reason: { type: 'string', description: 'Reason for handoff (create).' },
+      context: { type: 'string', description: 'Working context to transfer (create).' },
+      status: { type: 'string', enum: ['pending', 'accepted', 'rejected', 'completed', 'cancelled'], description: 'Filter by status (list).' },
+      fromSession: { type: 'string', description: 'Filter by originating session (list).' },
+      toSessionFilter: { type: 'string', description: 'Filter by target session (list).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          action: { type: 'string', required: true },
+          handoff: { type: 'json' },
+          handoffs: { type: 'array', items: { type: 'json' } },
+          deleted: { type: 'boolean' },
+        },
+      },
+    },
+    invoke: async (args: any, ctx2: any) => {
+      const agent = ctx2?.session?.agent
+      if (!agent) throw new Error('team_handoff: no agent context')
+
+      switch (args.action) {
+        case 'create': {
+          if (!args.taskId) throw new Error('team_handoff create: taskId required')
+          if (!args.toSession) throw new Error('team_handoff create: toSession required')
+          if (!args.reason) throw new Error('team_handoff create: reason required')
+          const handoff = createHandoff(agent, {
+            taskId: args.taskId,
+            toSession: args.toSession,
+            reason: args.reason,
+            context: args.context ?? '',
+          })
+          return { action: 'create', handoff }
+        }
+
+        case 'accept': {
+          if (!args.id) throw new Error('team_handoff accept: id required')
+          const handoff = acceptHandoff(agent, args.id)
+          if (!handoff) throw new Error('team_handoff: handoff not found: ' + args.id)
+          return { action: 'accept', handoff }
+        }
+
+        case 'reject': {
+          if (!args.id) throw new Error('team_handoff reject: id required')
+          const handoff = rejectHandoff(agent, args.id)
+          if (!handoff) throw new Error('team_handoff: handoff not found: ' + args.id)
+          return { action: 'reject', handoff }
+        }
+
+        case 'complete': {
+          if (!args.id) throw new Error('team_handoff complete: id required')
+          const handoff = completeHandoff(agent, args.id)
+          if (!handoff) throw new Error('team_handoff: handoff not found: ' + args.id)
+          return { action: 'complete', handoff }
+        }
+
+        case 'cancel': {
+          if (!args.id) throw new Error('team_handoff cancel: id required')
+          const handoff = cancelHandoff(agent, args.id)
+          if (!handoff) throw new Error('team_handoff: handoff not found: ' + args.id)
+          return { action: 'cancel', handoff }
+        }
+
+        case 'list': {
+          const filter: { status?: HandoffStatus; fromSession?: string; toSession?: string; taskId?: string } = {}
+          if (args.status) filter.status = args.status
+          if (args.fromSession) filter.fromSession = args.fromSession
+          if (args.toSessionFilter) filter.toSession = args.toSessionFilter
+          if (args.taskId) filter.taskId = args.taskId
+          const handoffs = listHandoffs(agent, filter)
+          return { action: 'list', handoffs }
+        }
+
+        case 'read': {
+          if (!args.id) throw new Error('team_handoff read: id required')
+          const handoff = readHandoff(agent, args.id)
+          if (!handoff) throw new Error('team_handoff: handoff not found: ' + args.id)
+          return { action: 'read', handoff }
+        }
+
+        case 'delete': {
+          if (!args.id) throw new Error('team_handoff delete: id required')
+          const deleted = deleteHandoff(agent, args.id)
+          return { action: 'delete', deleted }
+        }
+
+        throw new Error('team_handoff: unknown action ' + args.action)
+      }
+    },
+    presentCall: (args: any) => ({
+      card: 'generic' as const,
+      title: 'Handoff ' + args.action + (args.id ? ': ' + args.id : ''),
+      kind: args.action === 'create' ? 'create' : args.action === 'delete' || args.action === 'cancel' ? 'delete' : 'read',
+    }),
+  }))
