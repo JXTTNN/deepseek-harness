@@ -4744,10 +4744,6 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-}
-
-
-  // ==========================================================================
   // -- Handoff: formal task ownership transfer between agents ----------------
   // ==========================================================================
 
@@ -4862,3 +4858,5 @@ export function apply(ctx: Context): void {
       kind: args.action === 'create' ? 'create' : args.action === 'delete' || args.action === 'cancel' ? 'delete' : 'read',
     }),
   }))
+
+}
