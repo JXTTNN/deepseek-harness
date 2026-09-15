@@ -100,6 +100,14 @@ import {
   type ClaimType,
 } from './sync'
 
+// Pipeline helpers (extracted to pipeline.ts)
+import {
+  createPipeline, readPipeline, listPipelines,
+  startPipeline, advancePipeline, failPipeline,
+  cancelPipeline, deletePipeline,
+  type PipelineStatus,
+} from './pipeline'
+
 // Re-export functions that were previously defined in this module
 export { tokenizeForMemory, rankMemoryEntries } from './shared'
 
@@ -4300,5 +4308,134 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-}
+  // ==========================================================================
+  // -- Pipeline: linear sequential task execution -----------------------------
+  // ==========================================================================
 
+  ctx.tools.register(_defineToolAny({
+    name: 'team_pipeline',
+    description:
+      'Linear pipeline execution. Create a pipeline with sequential stages,'
+      + ' then advance through each stage in order. Actions: create (define a pipeline'
+      + ' with stages), start (begin execution), advance (complete current stage,'
+      + ' move to next), fail (mark current stage as failed), cancel (cancel pipeline),'
+      + ' list (list pipelines), read (read a pipeline), delete (delete a pipeline).'
+      + ' Pipelines stored in .team/pipelines/.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['create', 'start', 'advance', 'fail', 'cancel', 'list', 'read', 'delete'], description: 'Pipeline operation.' },
+      id: { type: 'string', description: 'Pipeline id (start/advance/fail/cancel/read/delete).' },
+      name: { type: 'string', description: 'Pipeline name (create).' },
+      description: { type: 'string', description: 'Pipeline description (create).' },
+      stages: { type: 'json', description: 'Array of {name, description, assignedTo?} (create).' },
+      output: { type: 'json', description: 'Stage output (advance).' },
+      error: { type: 'string', description: 'Error message (fail).' },
+      status: { type: 'string', enum: ['pending', 'running', 'completed', 'failed', 'cancelled'], description: 'Filter by status (list).' },
+      createdBy: { type: 'string', description: 'Filter by creator session id (list).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          action: { type: 'string', required: true },
+          pipeline: { type: 'json' },
+          pipelines: { type: 'array', items: { type: 'json' } },
+          deleted: { type: 'boolean' },
+        },
+      },
+      render: (args: any, value: any) => [{
+        type: 'text',
+        text: args.action === 'create'
+          ? 'pipeline ' + value.pipeline?.id + ' created with ' + (value.pipeline?.stages?.length ?? 0) + ' stages'
+          : args.action === 'start'
+            ? 'pipeline ' + args.id + ' started'
+            : args.action === 'advance'
+              ? value.pipeline?.status === 'completed'
+                ? 'pipeline ' + args.id + ' COMPLETED'
+                : 'pipeline ' + args.id + ' advanced to stage ' + (value.pipeline?.currentStage + 1)
+              : args.action === 'fail'
+                ? 'pipeline ' + args.id + ' FAILED: ' + args.error
+                : args.action === 'cancel'
+                  ? 'pipeline ' + args.id + ' cancelled'
+                  : args.action === 'list'
+                    ? (value.pipelines?.length ?? 0) + ' pipeline(s)'
+                    : args.action === 'read'
+                      ? value.pipeline ? 'pipeline ' + value.pipeline.id + ': ' + value.pipeline.status + ' (stage ' + (value.pipeline.currentStage + 1) + '/' + value.pipeline.stages.length + ')' : 'pipeline not found'
+                      : value.deleted ? 'pipeline ' + args.id + ' deleted' : 'pipeline not found',
+      }],
+    },
+    async execute(args: any, exec: any) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_pipeline: no agent context')
+
+      if (args.action === 'create') {
+        if (!args.name) throw new Error('team_pipeline create: name required')
+        if (!args.stages || !Array.isArray(args.stages) || args.stages.length === 0) throw new Error('team_pipeline create: stages array required')
+        const pipeline = createPipeline(agent, {
+          name: args.name,
+          description: args.description ?? '',
+          stages: args.stages,
+        })
+        return { action: 'create', pipeline }
+      }
+
+      if (args.action === 'start') {
+        if (!args.id) throw new Error('team_pipeline start: id required')
+        const pipeline = startPipeline(agent, args.id)
+        if (!pipeline) throw new Error('team_pipeline: pipeline not found: ' + args.id)
+        return { action: 'start', pipeline }
+      }
+
+      if (args.action === 'advance') {
+        if (!args.id) throw new Error('team_pipeline advance: id required')
+        const pipeline = advancePipeline(agent, args.id,
+          ...(args.output !== undefined ? [args.output] : []))
+        if (!pipeline) throw new Error('team_pipeline: pipeline not found: ' + args.id)
+        return { action: 'advance', pipeline }
+      }
+
+      if (args.action === 'fail') {
+        if (!args.id) throw new Error('team_pipeline fail: id required')
+        if (!args.error) throw new Error('team_pipeline fail: error required')
+        const pipeline = failPipeline(agent, args.id, args.error)
+        if (!pipeline) throw new Error('team_pipeline: pipeline not found: ' + args.id)
+        return { action: 'fail', pipeline }
+      }
+
+      if (args.action === 'cancel') {
+        if (!args.id) throw new Error('team_pipeline cancel: id required')
+        const pipeline = cancelPipeline(agent, args.id)
+        if (!pipeline) throw new Error('team_pipeline: pipeline not found: ' + args.id)
+        return { action: 'cancel', pipeline }
+      }
+
+      if (args.action === 'list') {
+        const filter: { status?: PipelineStatus; createdBy?: string } = {}
+        if (args.status) filter.status = args.status
+        if (args.createdBy) filter.createdBy = args.createdBy
+        const pipelines = listPipelines(agent, Object.keys(filter).length > 0 ? filter : undefined)
+        return { action: 'list', pipelines }
+      }
+
+      if (args.action === 'read') {
+        if (!args.id) throw new Error('team_pipeline read: id required')
+        const pipeline = readPipeline(agent, args.id)
+        return { action: 'read', pipeline }
+      }
+
+      if (args.action === 'delete') {
+        if (!args.id) throw new Error('team_pipeline delete: id required')
+        const deleted = deletePipeline(agent, args.id)
+        return { action: 'delete', deleted }
+      }
+
+      throw new Error('team_pipeline: unknown action ' + args.action)
+    },
+    presentCall: (args: any) => ({
+      card: 'generic' as const,
+      title: 'Pipeline ' + args.action + (args.id ? ': ' + args.id : ''),
+      kind: args.action === 'create' ? 'create' : args.action === 'delete' ? 'delete' : args.action === 'fail' || args.action === 'cancel' ? 'delete' : 'read',
+    }),
+  }))
+
+}
