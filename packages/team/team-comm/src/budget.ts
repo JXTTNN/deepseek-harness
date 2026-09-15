@@ -222,15 +222,18 @@ export function checkBudget(
   let exceeded = false
   let reason: string | undefined
 
-  if (budget.status === 'exceeded' || budget.status === 'paused') {
+  if (budget.status === 'paused') {
     exceeded = true
-    reason = `budget is ${budget.status}`
+    reason = 'budget is paused'
   } else if (remainingTokens <= 0) {
     exceeded = true
     reason = 'token limit reached'
   } else if (remainingCalls <= 0) {
     exceeded = true
     reason = 'call limit reached'
+  } else if (budget.status === 'exceeded') {
+    exceeded = true
+    reason = 'budget is exceeded'
   }
 
   return {
