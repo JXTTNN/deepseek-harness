@@ -99,9 +99,10 @@ describe('contract module', () => {
       expect(listContracts(agent)).toEqual([])
     })
 
-    it('should list all contracts sorted by createdAt', () => {
+    it('should list all contracts sorted by createdAt', async () => {
       const agent = makeAgent('p1', TMP)
       const c1 = createContract(agent, { consumer: 'c1', description: 'A', outputSchema: {} })
+      await new Promise(r => setTimeout(r, 2))
       const c2 = createContract(agent, { consumer: 'c2', description: 'B', outputSchema: {} })
       const list = listContracts(agent)
       expect(list).toHaveLength(2)
