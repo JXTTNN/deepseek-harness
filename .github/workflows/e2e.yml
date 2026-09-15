@@ -138,54 +138,84 @@ jobs:
       # "all skipped". This job only runs on trusted events (the `if:` above
       # excludes keyless PRs), so the secret MUST be present — fail loudly if not.
       #
-      # Beyond presence, actually CALL the endpoint once. A credential pair that
-      # is present but wrong (key from provider A, URL from provider B; expired
-      # key; model id absent from the gateway) is the failure this lane has kept
-      # hitting, and it is invisible to a presence-only preflight: the suite
-      # boots, every model call fails, every test sits out its full retry budget,
-      # and the 45m cap kills the job before any error is printed. Probing here
-      # converts that 45-minute cancellation into a ~15-second hard failure that
-      # names the HTTP status.
-      - name: Preflight (key present, endpoint reachable)
+      # Beyond presence, make one REAL model call. A credential pair that is
+      # present but rejected is this lane's actual failure: the suite boots,
+      # every model call fails, every test sits out its full 120s x 3 retry
+      # budget, and the 45m cap kills the job before any error is printed. That
+      # is how this lane produced 0 successes in 417 recorded runs while
+      # reporting nothing but "cancelled". Probing here converts a 45-minute
+      # cancellation into a ~15-second failure that names the HTTP status.
+      #
+      # team-e2e-cloud.yml already runs an equivalent probe, but there it is
+      # diagnostic-only and every LLM step is `continue-on-error: true`, so the
+      # same rejection leaves that lane green. Here it must gate.
+      - name: Preflight (key present, endpoint serves chat/completions)
+        env:
+          # Same model fallback convention as team-e2e-cloud.yml.
+          DSH_MODEL_NAME: ${{ secrets.DSH_MODEL || inputs.model }}
         run: |
           set -euo pipefail
           if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
-            echo "::error::API key is empty. Configure one of: CUSTOM_API_KEY, DEEPSEEK_API_KEY_EXTERNAL, DSH_API_KEY, DEEPSEEK_API_KEY"
+            echo "::error::API key is empty. Configure one of: DSH_API_KEY, CUSTOM_API_KEY, DEEPSEEK_API_KEY_EXTERNAL, DEEPSEEK_API_KEY"
             exit 1
           fi
           echo "API key present."
-          # Show which base URL will be used (without exposing the key)
           echo "Using API base URL: $DEEPSEEK_BASE_URL"
 
-          # GET /models is the cheapest authenticated round trip an
-          # OpenAI-compatible endpoint offers. Retry transient transport blips,
-          # then fail: a dead endpoint must cost seconds, not the whole budget.
-          url="${DEEPSEEK_BASE_URL%/}/models"
+          base="${DEEPSEEK_BASE_URL%/}"
+          model="${DSH_MODEL_NAME:-deepseek-chat}"
+
+          # Informational only: which model ids the gateway advertises. Never
+          # gates the job — a gateway may serve chat/completions while
+          # refusing GET /models, so a failure here proves nothing on its own.
+          curl -sS -m 20 -o /tmp/models.json -w 'GET /models -> HTTP %{http_code}\n' \
+            -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" "$base/models" || true
+          head -c 300 /tmp/models.json 2>/dev/null || true
+          echo
+
+          # The gate: one real chat completion — exactly the capability the
+          # suite depends on. Retry transient transport blips, then fail, so a
+          # dead endpoint costs seconds instead of the whole budget.
+          body=$(printf '{"model":"%s","messages":[{"role":"user","content":"ping"}],"max_tokens":4,"stream":false}' "$model")
           status=''
           for attempt in 1 2 3; do
-            status="$(curl -sS -o /tmp/models.json -w '%{http_code}' \
-              -m 20 -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" "$url" || echo '000')"
-            echo "attempt ${attempt}: GET ${url} -> HTTP ${status}"
+            status="$(curl -sS -o /tmp/chat.json -w '%{http_code}' \
+              -X POST "$base/chat/completions" \
+              -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" \
+              -H 'Content-Type: application/json' \
+              --data "$body" --max-time 30 || echo '000')"
+            echo "attempt ${attempt}: POST chat/completions (model=${model}) -> HTTP ${status}"
             case "$status" in
               2??) break ;;
             esac
             [ "$attempt" = 3 ] || sleep $((attempt * 5))
           done
 
+          # Never echo a credential-shaped token from a response body.
+          redact() { sed -E 's/sk-[A-Za-z0-9_-]{4,}/[REDACTED]/g'; }
+
           case "$status" in
             2??)
-              echo "Endpoint reachable."
-              # Surface the model ids the gateway advertises; a suite whose
-              # configured model is absent here is the next thing to check.
-              head -c 400 /tmp/models.json || true
+              echo "Endpoint serves chat/completions; proceeding."
+              head -c 300 /tmp/chat.json | redact || true
               echo
               ;;
             401|403)
-              echo "::error::Endpoint rejected the credential (HTTP ${status}). The key does not belong to this endpoint — check that DSH_API_KEY pairs with DSH_BASE_URL."
+              echo "::error::Endpoint rejected the credential (HTTP ${status}) at ${base}/chat/completions. The key does not belong to this endpoint, or it is expired/unauthorized — every real-model test would otherwise burn its full timeout. Provision a valid key for this endpoint."
+              head -c 300 /tmp/chat.json | redact || true
+              echo
+              exit 1
+              ;;
+            400|404)
+              echo "::error::Endpoint authenticated but refused model '${model}' (HTTP ${status}). Set the DSH_MODEL secret to a model this gateway actually serves."
+              head -c 300 /tmp/chat.json | redact || true
+              echo
               exit 1
               ;;
             *)
-              echo "::error::Endpoint check failed (HTTP ${status}) for ${url}. Fix the credential/endpoint pair before spending the e2e budget."
+              echo "::error::Real-model endpoint unusable (HTTP ${status}) at ${base}/chat/completions. Fix the credential/endpoint pair before spending the e2e budget."
+              head -c 300 /tmp/chat.json | redact || true
+              echo
               exit 1
               ;;
           esac
