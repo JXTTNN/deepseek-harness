@@ -117,6 +117,14 @@ import {
   type ConsensusStatus,
 } from './consensus'
 
+// Budget helpers (extracted to budget.ts)
+import {
+  createBudget, readBudget, findBudgetBySession,
+  listBudgets, recordUsage, checkBudget,
+  updateBudget, resetUsage, deleteBudget,
+  type BudgetStatus,
+} from './budget'
+
 // Re-export functions that were previously defined in this module
 export { tokenizeForMemory, rankMemoryEntries } from './shared'
 
@@ -4593,6 +4601,137 @@ export function apply(ctx: Context): void {
       card: 'generic' as const,
       title: 'Consensus ' + args.action + (args.id ? ': ' + args.id : ''),
       kind: args.action === 'create' ? 'create' : args.action === 'delete' || args.action === 'cancel' ? 'delete' : 'read',
+    }),
+  }))
+
+  // ==========================================================================
+  // -- Budget: track and enforce resource budgets for agents ----------------
+  // ==========================================================================
+
+  ctx.tools.register(_defineToolAny({
+    name: 'team_budget',
+    description:
+      'Resource budget tracking and enforcement. Each agent session can have a budget'
+      + ' that limits total tokens consumed and total tool calls made within a time window.'
+      + ' Actions: create (set up a budget), check (check if budget allows more usage),'
+      + ' record (record token/call usage), update (change limits), reset (reset counters),'
+      + ' list (list budgets), read (read a budget), delete (delete a budget).'
+      + ' Budgets stored in .team/budgets/.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['create', 'check', 'record', 'update', 'reset', 'list', 'read', 'delete'], description: 'Budget operation.' },
+      id: { type: 'string', description: 'Budget id (check/record/update/reset/read/delete).' },
+      sessionId: { type: 'string', description: 'Session id for the budget (create/list filter).' },
+      tokenLimit: { type: 'number', description: 'Max tokens allowed (create/update).' },
+      callLimit: { type: 'number', description: 'Max calls allowed (create/update).' },
+      timeWindowMs: { type: 'number', description: 'Time window in ms for rate limiting (create/update).' },
+      tokens: { type: 'number', description: 'Tokens to record (record).' },
+      calls: { type: 'number', description: 'Calls to record (record).' },
+      status: { type: 'string', enum: ['active', 'exceeded', 'paused', 'deleted'], description: 'Filter by status (list) or set status (update).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          action: { type: 'string', required: true },
+          budget: { type: 'json' },
+          budgets: { type: 'array', items: { type: 'json' } },
+          check: { type: 'json' },
+          deleted: { type: 'boolean' },
+        },
+      },
+      render: (args: any, value: any) => [{
+        type: 'text',
+        text: args.action === 'create'
+          ? 'budget ' + value.budget?.id + ' created for ' + (value.budget?.sessionId)
+          : args.action === 'check'
+            ? value.check?.exceeded ? 'budget EXCEEDED: ' + value.check?.reason : 'budget OK: ' + value.check?.remainingTokens + ' tokens, ' + value.check?.remainingCalls + ' calls remaining'
+            : args.action === 'record'
+              ? 'recorded ' + args.tokens + ' tokens, ' + args.calls + ' calls'
+              : args.action === 'update'
+                ? 'budget ' + args.id + ' updated'
+                : args.action === 'reset'
+                  ? 'budget ' + args.id + ' usage reset'
+                  : args.action === 'list'
+                    ? (value.budgets?.length ?? 0) + ' budget(s)'
+                    : args.action === 'read'
+                      ? value.budget ? 'budget ' + value.budget.id + ': ' + value.budget.tokenUsed + '/' + value.budget.tokenLimit + ' tokens, ' + value.budget.callUsed + '/' + value.budget.callLimit + ' calls' : 'budget not found'
+                      : value.deleted ? 'budget ' + args.id + ' deleted' : 'budget not found',
+      }],
+    },
+    async execute(args: any, exec: any) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_budget: no agent context')
+
+      if (args.action === 'create') {
+        const budget = createBudget(agent, {
+          ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {}),
+          ...(args.tokenLimit !== undefined ? { tokenLimit: args.tokenLimit } : {}),
+          ...(args.callLimit !== undefined ? { callLimit: args.callLimit } : {}),
+          ...(args.timeWindowMs !== undefined ? { timeWindowMs: args.timeWindowMs } : {}),
+        })
+        return { action: 'create', budget }
+      }
+
+      if (args.action === 'check') {
+        if (!args.id) throw new Error('team_budget check: id required')
+        const check = checkBudget(agent, args.id)
+        if (!check) throw new Error('team_budget: budget not found: ' + args.id)
+        return { action: 'check', check }
+      }
+
+      if (args.action === 'record') {
+        if (!args.id) throw new Error('team_budget record: id required')
+        const budget = recordUsage(agent, args.id, args.tokens ?? 0, args.calls ?? 0)
+        if (!budget) throw new Error('team_budget: budget not found: ' + args.id)
+        return { action: 'record', budget }
+      }
+
+      if (args.action === 'update') {
+        if (!args.id) throw new Error('team_budget update: id required')
+        const updates: { tokenLimit?: number; callLimit?: number; timeWindowMs?: number; status?: BudgetStatus } = {}
+        if (args.tokenLimit !== undefined) updates.tokenLimit = args.tokenLimit
+        if (args.callLimit !== undefined) updates.callLimit = args.callLimit
+        if (args.timeWindowMs !== undefined) updates.timeWindowMs = args.timeWindowMs
+        if (args.status !== undefined) updates.status = args.status
+        const budget = updateBudget(agent, args.id, updates)
+        if (!budget) throw new Error('team_budget: budget not found: ' + args.id)
+        return { action: 'update', budget }
+      }
+
+      if (args.action === 'reset') {
+        if (!args.id) throw new Error('team_budget reset: id required')
+        const budget = resetUsage(agent, args.id)
+        if (!budget) throw new Error('team_budget: budget not found: ' + args.id)
+        return { action: 'reset', budget }
+      }
+
+      if (args.action === 'list') {
+        const filter: { status?: BudgetStatus; sessionId?: string } = {}
+        if (args.status) filter.status = args.status
+        if (args.sessionId) filter.sessionId = args.sessionId
+        const budgets = listBudgets(agent, Object.keys(filter).length > 0 ? filter : undefined)
+        return { action: 'list', budgets }
+      }
+
+      if (args.action === 'read') {
+        if (!args.id) throw new Error('team_budget read: id required')
+        const budget = readBudget(agent, args.id)
+        return { action: 'read', budget }
+      }
+
+      if (args.action === 'delete') {
+        if (!args.id) throw new Error('team_budget delete: id required')
+        const deleted = deleteBudget(agent, args.id)
+        return { action: 'delete', deleted }
+      }
+
+      throw new Error('team_budget: unknown action ' + args.action)
+    },
+    presentCall: (args: any) => ({
+      card: 'generic' as const,
+      title: 'Budget ' + args.action + (args.id ? ': ' + args.id : ''),
+      kind: args.action === 'create' ? 'create' : args.action === 'delete' ? 'delete' : 'read',
     }),
   }))
 
