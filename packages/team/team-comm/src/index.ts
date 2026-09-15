@@ -108,6 +108,15 @@ import {
   type PipelineStatus,
 } from './pipeline'
 
+// Consensus helpers (extracted to consensus.ts)
+import {
+  createConsensus, readConsensus, listConsensus,
+  addParticipant, submitResponse, startCrossReview,
+  getCrossReviewPrompt, synthesizeConsensus,
+  cancelConsensus, deleteConsensus,
+  type ConsensusStatus,
+} from './consensus'
+
 // Re-export functions that were previously defined in this module
 export { tokenizeForMemory, rankMemoryEntries } from './shared'
 
@@ -4435,6 +4444,155 @@ export function apply(ctx: Context): void {
       card: 'generic' as const,
       title: 'Pipeline ' + args.action + (args.id ? ': ' + args.id : ''),
       kind: args.action === 'create' ? 'create' : args.action === 'delete' ? 'delete' : args.action === 'fail' || args.action === 'cancel' ? 'delete' : 'read',
+    }),
+  }))
+
+  // ==========================================================================
+  // -- Consensus: multi-agent debate and verification ------------------------
+  // ==========================================================================
+
+  ctx.tools.register(_defineToolAny({
+    name: 'team_consensus',
+    description:
+      'Multi-agent consensus and debate. Multiple agents analyze the same question'
+      + ' independently, cross-review each other, and converge on a synthesized result.'
+      + ' Actions: create (start a consensus session), addParticipant (add a participant),'
+      + ' submit (submit a response for current round), crossReview (start cross-review round),'
+      + ' prompt (get cross-review prompt for a participant), synthesize (produce final result),'
+      + ' cancel (cancel session), list (list sessions), read (read a session),'
+      + ' delete (delete a session). Sessions stored in .team/consensus/.',
+    parameters: {
+      action: { type: 'string', required: true, enum: ['create', 'addParticipant', 'submit', 'crossReview', 'prompt', 'synthesize', 'cancel', 'list', 'read', 'delete'], description: 'Consensus operation.' },
+      id: { type: 'string', description: 'Consensus session id (addParticipant/submit/crossReview/prompt/synthesize/cancel/read/delete).' },
+      question: { type: 'string', description: 'Question to debate (create).' },
+      description: { type: 'string', description: 'Session description (create).' },
+      participants: { type: 'json', description: 'Array of participant session ids (create).' },
+      participantId: { type: 'string', description: 'Participant to add (addParticipant) or get prompt for (prompt).' },
+      response: { type: 'string', description: 'Response text (submit).' },
+      result: { type: 'string', description: 'Synthesized result text (synthesize).' },
+      status: { type: 'string', enum: ['collecting', 'reviewing', 'synthesized', 'cancelled'], description: 'Filter by status (list).' },
+      createdBy: { type: 'string', description: 'Filter by creator (list).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          action: { type: 'string', required: true },
+          consensus: { type: 'json' },
+          consensusList: { type: 'array', items: { type: 'json' } },
+          prompt: { type: 'string' },
+          deleted: { type: 'boolean' },
+        },
+      },
+      render: (args: any, value: any) => [{
+        type: 'text',
+        text: args.action === 'create'
+          ? 'consensus ' + value.consensus?.id + ' created: ' + args.question
+          : args.action === 'addParticipant'
+            ? 'participant ' + args.participantId + ' added to ' + args.id
+            : args.action === 'submit'
+              ? 'response submitted for ' + args.id
+              : args.action === 'crossReview'
+                ? 'cross-review started for ' + args.id
+                : args.action === 'prompt'
+                  ? value.prompt ? 'cross-review prompt for ' + args.participantId : 'no prompt available'
+                  : args.action === 'synthesize'
+                    ? 'consensus ' + args.id + ' synthesized'
+                    : args.action === 'cancel'
+                      ? 'consensus ' + args.id + ' cancelled'
+                      : args.action === 'list'
+                        ? (value.consensusList?.length ?? 0) + ' consensus session(s)'
+                        : args.action === 'read'
+                          ? value.consensus ? 'consensus ' + value.consensus.id + ': ' + value.consensus.status : 'consensus not found'
+                          : value.deleted ? 'consensus ' + args.id + ' deleted' : 'consensus not found',
+      }],
+    },
+    async execute(args: any, exec: any) {
+      const agent = exec.agent
+      if (!agent) throw new Error('team_consensus: no agent context')
+
+      if (args.action === 'create') {
+        if (!args.question) throw new Error('team_consensus create: question required')
+        const consensus = createConsensus(agent, {
+          question: args.question,
+          ...(args.description !== undefined ? { description: args.description } : {}),
+          ...(args.participants !== undefined ? { participants: args.participants } : {}),
+        })
+        return { action: 'create', consensus }
+      }
+
+      if (args.action === 'addParticipant') {
+        if (!args.id) throw new Error('team_consensus addParticipant: id required')
+        if (!args.participantId) throw new Error('team_consensus addParticipant: participantId required')
+        const consensus = addParticipant(agent, args.id, args.participantId)
+        if (!consensus) throw new Error('team_consensus: session not found: ' + args.id)
+        return { action: 'addParticipant', consensus }
+      }
+
+      if (args.action === 'submit') {
+        if (!args.id) throw new Error('team_consensus submit: id required')
+        if (!args.response) throw new Error('team_consensus submit: response required')
+        const consensus = submitResponse(agent, args.id, args.response)
+        if (!consensus) throw new Error('team_consensus: session not found: ' + args.id)
+        return { action: 'submit', consensus }
+      }
+
+      if (args.action === 'crossReview') {
+        if (!args.id) throw new Error('team_consensus crossReview: id required')
+        const consensus = startCrossReview(agent, args.id)
+        if (!consensus) throw new Error('team_consensus: session not found: ' + args.id)
+        return { action: 'crossReview', consensus }
+      }
+
+      if (args.action === 'prompt') {
+        if (!args.id) throw new Error('team_consensus prompt: id required')
+        if (!args.participantId) throw new Error('team_consensus prompt: participantId required')
+        const prompt = getCrossReviewPrompt(agent, args.id, args.participantId)
+        return { action: 'prompt', prompt }
+      }
+
+      if (args.action === 'synthesize') {
+        if (!args.id) throw new Error('team_consensus synthesize: id required')
+        if (!args.result) throw new Error('team_consensus synthesize: result required')
+        const consensus = synthesizeConsensus(agent, args.id, args.result)
+        if (!consensus) throw new Error('team_consensus: session not found: ' + args.id)
+        return { action: 'synthesize', consensus }
+      }
+
+      if (args.action === 'cancel') {
+        if (!args.id) throw new Error('team_consensus cancel: id required')
+        const consensus = cancelConsensus(agent, args.id)
+        if (!consensus) throw new Error('team_consensus: session not found: ' + args.id)
+        return { action: 'cancel', consensus }
+      }
+
+      if (args.action === 'list') {
+        const filter: { status?: ConsensusStatus; createdBy?: string; participant?: string } = {}
+        if (args.status) filter.status = args.status
+        if (args.createdBy) filter.createdBy = args.createdBy
+        const consensusList = listConsensus(agent, Object.keys(filter).length > 0 ? filter : undefined)
+        return { action: 'list', consensusList }
+      }
+
+      if (args.action === 'read') {
+        if (!args.id) throw new Error('team_consensus read: id required')
+        const consensus = readConsensus(agent, args.id)
+        return { action: 'read', consensus }
+      }
+
+      if (args.action === 'delete') {
+        if (!args.id) throw new Error('team_consensus delete: id required')
+        const deleted = deleteConsensus(agent, args.id)
+        return { action: 'delete', deleted }
+      }
+
+      throw new Error('team_consensus: unknown action ' + args.action)
+    },
+    presentCall: (args: any) => ({
+      card: 'generic' as const,
+      title: 'Consensus ' + args.action + (args.id ? ': ' + args.id : ''),
+      kind: args.action === 'create' ? 'create' : args.action === 'delete' || args.action === 'cancel' ? 'delete' : 'read',
     }),
   }))
 
