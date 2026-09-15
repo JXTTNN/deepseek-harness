@@ -149,8 +149,8 @@ export function acceptHandoff(
 ): TaskHandoff | undefined {
   const handoff = readHandoff(agent, id)
   if (!handoff) return undefined
-  if (handoff.status !== 'pending') throw new Error(`Handoff ${id} is ${handoff.status}`)
   if (handoff.toSession !== agent.session.id) throw new Error(`Handoff ${id} is for ${handoff.toSession}, not ${agent.session.id}`)
+  if (handoff.status !== 'pending') throw new Error(`Handoff ${id} is ${handoff.status}`)
 
   handoff.status = 'accepted'
   handoff.acceptedAt = nowISO()
@@ -167,8 +167,8 @@ export function rejectHandoff(
 ): TaskHandoff | undefined {
   const handoff = readHandoff(agent, id)
   if (!handoff) return undefined
-  if (handoff.status !== 'pending') throw new Error(`Handoff ${id} is ${handoff.status}`)
   if (handoff.toSession !== agent.session.id) throw new Error(`Handoff ${id} is for ${handoff.toSession}, not ${agent.session.id}`)
+  if (handoff.status !== 'pending') throw new Error(`Handoff ${id} is ${handoff.status}`)
 
   handoff.status = 'rejected'
   handoff.updatedAt = nowISO()
@@ -184,8 +184,8 @@ export function completeHandoff(
 ): TaskHandoff | undefined {
   const handoff = readHandoff(agent, id)
   if (!handoff) return undefined
-  if (handoff.status !== 'accepted') throw new Error(`Handoff ${id} is ${handoff.status}, must be accepted first`)
   if (handoff.toSession !== agent.session.id) throw new Error(`Handoff ${id} is for ${handoff.toSession}, not ${agent.session.id}`)
+  if (handoff.status !== 'accepted') throw new Error(`Handoff ${id} is ${handoff.status}, must be accepted first`)
 
   handoff.status = 'completed'
   handoff.completedAt = nowISO()
@@ -202,8 +202,8 @@ export function cancelHandoff(
 ): TaskHandoff | undefined {
   const handoff = readHandoff(agent, id)
   if (!handoff) return undefined
-  if (handoff.status === 'completed') throw new Error(`Handoff ${id} is already completed`)
   if (handoff.fromSession !== agent.session.id) throw new Error(`Only the originator can cancel handoff ${id}`)
+  if (handoff.status === 'completed') throw new Error(`Handoff ${id} is already completed`)
 
   handoff.status = 'cancelled'
   handoff.updatedAt = nowISO()
