@@ -120,7 +120,10 @@ export function listContracts(
       // skip corrupted
     }
   }
-  return contracts.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  return contracts.sort((a, b) => {
+    const cmp = a.createdAt.localeCompare(b.createdAt)
+    return cmp !== 0 ? cmp : a.id.localeCompare(b.id)
+  })
 }
 
 /** Update a contract's status atomically. */
