@@ -240,6 +240,21 @@ describe('handoff', () => {
       const agent = makeAgent('s1', TMP)
       expect(deleteHandoff(agent, 'nonexistent')).toBe(false)
     })
+
+    it('should let the target session delete', () => {
+      const originator = makeAgent('s1', TMP)
+      const h = createHandoff(originator, { taskId: 't1', toSession: 's2', reason: 'r', context: 'c' })
+      expect(deleteHandoff(makeAgent('s2', TMP), h.id)).toBe(true)
+    })
+
+    it('should refuse a session that is party to neither side', () => {
+      const originator = makeAgent('s1', TMP)
+      const h = createHandoff(originator, { taskId: 't1', toSession: 's2', reason: 'r', context: 'c' })
+      // Deleting used to be unchecked, so an unrelated peer could erase another
+      // pair's pending transfer and orphan the task.
+      expect(() => deleteHandoff(makeAgent('s3', TMP), h.id)).toThrow(/involves s1 and s2, not s3/)
+      expect(readHandoff(originator, h.id)?.id).toBe(h.id)
+    })
   })
 
   describe('full handoff lifecycle', () => {

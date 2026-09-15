@@ -14,7 +14,11 @@
     apiKeyEnv: DEEPSEEK_API_KEY
     streamIdleTimeoutMs: 172800000
     models:
-      - id: !!js process.env.DSH_MODEL ?? 'deepseek-v4-flash'
+      # `||`, not `??`: CI exports DSH_MODEL unconditionally, so on a non-
+      # workflow_dispatch run it is the EMPTY STRING rather than unset. `??`
+      # only falls back on null/undefined, so an empty value would reach the
+      # API as a blank model id and every request would be rejected.
+      - id: !!js process.env.DSH_MODEL || 'deepseek-v4-flash'
         contextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 1000000)
 
 - id: sandbox

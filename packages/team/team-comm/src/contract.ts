@@ -13,10 +13,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { TEAM_DIR, teamCwd } from './shared'
+import { TEAM_DIR, assertSafeTeamId, teamCwd, writeTextAtomic } from './shared'
 
 // -- Types ----------------------------------------------------------------
 
@@ -52,7 +52,9 @@ function contractDir(agent: { session: { header?: { cwd?: string } } }): string 
 }
 
 function contractFile(agent: { session: { header?: { cwd?: string } } }, id: string): string {
-  return join(contractDir(agent), `${id}.json`)
+  // The id arrives from a model-controlled tool argument and is interpolated
+  // into a path, so validate it here: every caller funnels through this helper.
+  return join(contractDir(agent), `${assertSafeTeamId(id, 'contract id')}.json`)
 }
 
 // -- CRUD -----------------------------------------------------------------
@@ -84,9 +86,7 @@ export function createContract(
   }
 
   const file = contractFile(agent, contract.id)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, JSON.stringify(contract, null, 2))
-  renameSync(tmp, file)
+  writeTextAtomic(file, JSON.stringify(contract, null, 2))
   return contract
 }
 
@@ -148,9 +148,7 @@ export function updateContractStatus(
   }
 
   const file = contractFile(agent, id)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, JSON.stringify(updated, null, 2))
-  renameSync(tmp, file)
+  writeTextAtomic(file, JSON.stringify(updated, null, 2))
   return updated
 }
 

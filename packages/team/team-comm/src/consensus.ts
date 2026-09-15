@@ -16,10 +16,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { TEAM_DIR, teamCwd } from './shared'
+import { TEAM_DIR, assertSafeTeamId, teamCwd, writeTextAtomic } from './shared'
 
 // -- Constants ------------------------------------------------------------
 
@@ -60,13 +60,9 @@ function consensusDir(agent: { session: { header?: { cwd?: string } } }): string
 }
 
 function consensusFile(agent: { session: { header?: { cwd?: string } } }, id: string): string {
-  return join(consensusDir(agent), `${id}.json`)
-}
-
-function atomicWrite(file: string, data: string): void {
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, data)
-  renameSync(tmp, file)
+  // The id arrives from a model-controlled tool argument and is interpolated
+  // into a path, so validate it here: every caller funnels through this helper.
+  return join(consensusDir(agent), `${assertSafeTeamId(id, 'consensus id')}.json`)
 }
 
 function nowISO(): string {
@@ -106,7 +102,7 @@ export function createConsensus(
     updatedAt: now,
   }
 
-  atomicWrite(consensusFile(agent, session.id), JSON.stringify(session, null, 2))
+  writeTextAtomic(consensusFile(agent, session.id), JSON.stringify(session, null, 2))
   return session
 }
 
@@ -164,7 +160,7 @@ export function addParticipant(
 
   session.participants.push(participantId)
   session.updatedAt = nowISO()
-  atomicWrite(consensusFile(agent, id), JSON.stringify(session, null, 2))
+  writeTextAtomic(consensusFile(agent, id), JSON.stringify(session, null, 2))
   return session
 }
 
@@ -195,7 +191,7 @@ export function submitResponse(
     round.completedAt = nowISO()
   }
 
-  atomicWrite(consensusFile(agent, id), JSON.stringify(session, null, 2))
+  writeTextAtomic(consensusFile(agent, id), JSON.stringify(session, null, 2))
   return session
 }
 
@@ -224,7 +220,7 @@ export function startCrossReview(
   session.status = 'reviewing'
   session.updatedAt = now
 
-  atomicWrite(consensusFile(agent, id), JSON.stringify(session, null, 2))
+  writeTextAtomic(consensusFile(agent, id), JSON.stringify(session, null, 2))
   return session
 }
 
@@ -271,7 +267,7 @@ export function synthesizeConsensus(
   session.result = result
   session.updatedAt = now
 
-  atomicWrite(consensusFile(agent, id), JSON.stringify(session, null, 2))
+  writeTextAtomic(consensusFile(agent, id), JSON.stringify(session, null, 2))
   return session
 }
 
@@ -287,7 +283,7 @@ export function cancelConsensus(
   session.status = 'cancelled'
   session.updatedAt = nowISO()
 
-  atomicWrite(consensusFile(agent, id), JSON.stringify(session, null, 2))
+  writeTextAtomic(consensusFile(agent, id), JSON.stringify(session, null, 2))
   return session
 }
 

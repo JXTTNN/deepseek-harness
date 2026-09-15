@@ -404,13 +404,22 @@ export function parseJsonl<T>(raw: string): T[] {
   return result
 }
 
-/** Overwrite a JSONL file with an array of records, atomically. */
-export function writeJsonl(path: string, records: unknown[]): void {
-  const content = records.length === 0
-    ? ''
-    : records.map((r: unknown) => JSON.stringify(r)).join('\n') + '\n'
-  // Write to a sibling temp file and rename so a concurrent reader never sees
-  // a half-written file (which the current parser would silently drop).
+/**
+ * Write `content` to `path` atomically: sibling temp file, best-effort fsync,
+ * then rename — retrying the rename through the transient Windows share-lock
+ * errors that make a bare `renameSync` throw.
+ *
+ * Extracted from `writeJsonl` so the per-record JSON modules (contract,
+ * pipeline, election, budget, consensus, sync, handoff) share ONE hardened
+ * implementation. Each of those had grown its own bare
+ * `writeFileSync(tmp) + renameSync(tmp, file)` pair, which reintroduced exactly
+ * the crash-on-contention and torn-write window this helper exists to close:
+ * the same defect class already fixed for the JSONL paths (a bare rename over
+ * an open destination throws EPERM/EBUSY on Windows and would take the whole
+ * tool call down with it).
+ */
+export function writeTextAtomic(path: string, content: string): void {
+  // A concurrent reader must never see a half-written file.
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.${randomUUID()}.tmp`
   writeFileSync(tmp, content)
@@ -419,7 +428,7 @@ export function writeJsonl(path: string, records: unknown[]): void {
   try {
     const fd = openSync(tmp, 'r+')
     try { fsyncSync(fd) } finally { closeSync(fd) }
-  } catch { /* fsync unsupported/denied 鈥?rename still gives atomicity */ }
+  } catch { /* fsync unsupported/denied — rename still gives atomicity */ }
   // `renameSync` over an existing destination is atomic on POSIX, but Windows
   // can surface transient EPERM/EBUSY/EEXIST while a reader briefly holds the
   // file open. Retry a few times, then fall back to a direct write as a last
@@ -431,7 +440,7 @@ export function writeJsonl(path: string, records: unknown[]): void {
       return
     } catch (err) {
       lastError = err
-      // If the temp file disappeared, another writer already renamed it 鈥?done.
+      // If the temp file disappeared, another writer already renamed it — done.
       if (!existsSync(tmp)) return
       // Busy-wait briefly; the Windows share lock is usually released in ms.
       const wait = 10 * (attempt + 1)
@@ -439,14 +448,23 @@ export function writeJsonl(path: string, records: unknown[]): void {
       while (Date.now() < until) { /* spin */ }
     }
   }
-  // Last resort: non-atomic direct overwrite. The parser tolerates a partially
-  // written final line by skipping malformed lines, so this degrades gracefully.
+  // Last resort: non-atomic direct overwrite. The JSONL parser tolerates a
+  // partially written final line by skipping malformed lines, so this degrades
+  // gracefully rather than failing the operation outright.
   writeFileSync(path, content)
   try { rmSync(tmp, { force: true }) } catch { /* best-effort */ }
   if (lastError !== undefined) {
     // Surface the original error to callers that want to observe contention.
-    console.warn('[team-comm] writeJsonl: rename contended, fell back to direct write:', lastError)
+    console.warn('[team-comm] writeTextAtomic: rename contended, fell back to direct write:', lastError)
   }
+}
+
+/** Overwrite a JSONL file with an array of records, atomically. */
+export function writeJsonl(path: string, records: unknown[]): void {
+  const content = records.length === 0
+    ? ''
+    : records.map((r: unknown) => JSON.stringify(r)).join('\n') + '\n'
+  writeTextAtomic(path, content)
 }
 
 // ---------------------------------------------------------------------------

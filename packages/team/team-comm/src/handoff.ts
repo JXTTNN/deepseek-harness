@@ -16,10 +16,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { TEAM_DIR, teamCwd } from './shared'
+import { TEAM_DIR, assertSafeTeamId, teamCwd, writeTextAtomic } from './shared'
 
 // -- Constants ------------------------------------------------------------
 
@@ -49,14 +49,17 @@ function handoffDir(agent: { session: { header?: { cwd?: string } } }): string {
   return join(teamCwd(agent), TEAM_DIR, HANDOFF_DIR)
 }
 
+/**
+ * Resolve `<handoffs>/<id>.json`.
+ *
+ * The id is interpolated into a filesystem path and reaches us straight from a
+ * tool argument the model controls, so it must be validated HERE rather than
+ * only at the call site: every reader/writer/deleter in this module funnels
+ * through this one helper, which makes it the single place a `../` escape can
+ * be stopped for good.
+ */
 function handoffFile(agent: { session: { header?: { cwd?: string } } }, id: string): string {
-  return join(handoffDir(agent), `${id}.json`)
-}
-
-function atomicWrite(file: string, data: string): void {
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, data)
-  renameSync(tmp, file)
+  return join(handoffDir(agent), `${assertSafeTeamId(id, 'handoff id')}.json`)
 }
 
 function nowISO(): string {
@@ -95,7 +98,7 @@ export function createHandoff(
     updatedAt: now,
   }
 
-  atomicWrite(handoffFile(agent, handoff.id), JSON.stringify(handoff, null, 2))
+  writeTextAtomic(handoffFile(agent, handoff.id), JSON.stringify(handoff, null, 2))
   return handoff
 }
 
@@ -156,7 +159,7 @@ export function acceptHandoff(
   handoff.acceptedAt = nowISO()
   handoff.updatedAt = nowISO()
 
-  atomicWrite(handoffFile(agent, id), JSON.stringify(handoff, null, 2))
+  writeTextAtomic(handoffFile(agent, id), JSON.stringify(handoff, null, 2))
   return handoff
 }
 
@@ -173,7 +176,7 @@ export function rejectHandoff(
   handoff.status = 'rejected'
   handoff.updatedAt = nowISO()
 
-  atomicWrite(handoffFile(agent, id), JSON.stringify(handoff, null, 2))
+  writeTextAtomic(handoffFile(agent, id), JSON.stringify(handoff, null, 2))
   return handoff
 }
 
@@ -191,7 +194,7 @@ export function completeHandoff(
   handoff.completedAt = nowISO()
   handoff.updatedAt = nowISO()
 
-  atomicWrite(handoffFile(agent, id), JSON.stringify(handoff, null, 2))
+  writeTextAtomic(handoffFile(agent, id), JSON.stringify(handoff, null, 2))
   return handoff
 }
 
@@ -208,15 +211,30 @@ export function cancelHandoff(
   handoff.status = 'cancelled'
   handoff.updatedAt = nowISO()
 
-  atomicWrite(handoffFile(agent, id), JSON.stringify(handoff, null, 2))
+  writeTextAtomic(handoffFile(agent, id), JSON.stringify(handoff, null, 2))
   return handoff
 }
 
-/** Delete a handoff. */
+/**
+ * Delete a handoff.
+ *
+ * Restricted to the two parties of the transfer. Every other transition
+ * (accept/reject/complete/cancel) already refuses an unrelated caller, but
+ * delete used to accept anyone: an unrelated session could erase another pair's
+ * pending handoff and leave the task silently homeless. The signature takes the
+ * caller's session id for that reason — the previous `{ header? }`-only shape
+ * could not express the check at all.
+ */
 export function deleteHandoff(
-  agent: { session: { header?: { cwd?: string } } },
+  agent: { session: { id: string; header?: { cwd?: string } } },
   id: string,
 ): boolean {
+  const handoff = readHandoff(agent, id)
+  if (!handoff) return false
+  if (handoff.fromSession !== agent.session.id && handoff.toSession !== agent.session.id) {
+    throw new Error(`Handoff ${id} involves ${handoff.fromSession} and ${handoff.toSession}, not ${agent.session.id}`)
+  }
+
   const file = handoffFile(agent, id)
   if (!existsSync(file)) return false
   try {

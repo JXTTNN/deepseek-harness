@@ -10,10 +10,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { TEAM_DIR, teamCwd } from './shared'
+import { TEAM_DIR, assertSafeTeamId, teamCwd, writeTextAtomic } from './shared'
 
 // -- Constants ------------------------------------------------------------
 
@@ -75,13 +75,9 @@ function pipelineDir(agent: { session: { header?: { cwd?: string } } }): string 
 }
 
 function pipelineFile(agent: { session: { header?: { cwd?: string } } }, id: string): string {
-  return join(pipelineDir(agent), `${id}.json`)
-}
-
-function atomicWrite(file: string, data: string): void {
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, data)
-  renameSync(tmp, file)
+  // The id arrives from a model-controlled tool argument and is interpolated
+  // into a path, so validate it here: every caller funnels through this helper.
+  return join(pipelineDir(agent), `${assertSafeTeamId(id, 'pipeline id')}.json`)
 }
 
 // -- CRUD -----------------------------------------------------------------
@@ -116,7 +112,7 @@ export function createPipeline(
     updatedAt: now,
   }
 
-  atomicWrite(pipelineFile(agent, pipeline.id), JSON.stringify(pipeline, null, 2))
+  writeTextAtomic(pipelineFile(agent, pipeline.id), JSON.stringify(pipeline, null, 2))
   return pipeline
 }
 
@@ -176,7 +172,7 @@ export function startPipeline(
   pipeline.stages[0]!.startedAt = new Date().toISOString()
   pipeline.updatedAt = new Date().toISOString()
 
-  atomicWrite(pipelineFile(agent, id), JSON.stringify(pipeline, null, 2))
+  writeTextAtomic(pipelineFile(agent, id), JSON.stringify(pipeline, null, 2))
   return pipeline
 }
 
@@ -210,7 +206,7 @@ export function advancePipeline(
   }
 
   pipeline.updatedAt = now
-  atomicWrite(pipelineFile(agent, id), JSON.stringify(pipeline, null, 2))
+  writeTextAtomic(pipelineFile(agent, id), JSON.stringify(pipeline, null, 2))
   return pipeline
 }
 
@@ -233,7 +229,7 @@ export function failPipeline(
   pipeline.status = 'failed'
   pipeline.updatedAt = now
 
-  atomicWrite(pipelineFile(agent, id), JSON.stringify(pipeline, null, 2))
+  writeTextAtomic(pipelineFile(agent, id), JSON.stringify(pipeline, null, 2))
   return pipeline
 }
 
@@ -256,7 +252,7 @@ export function cancelPipeline(
     }
   }
 
-  atomicWrite(pipelineFile(agent, id), JSON.stringify(pipeline, null, 2))
+  writeTextAtomic(pipelineFile(agent, id), JSON.stringify(pipeline, null, 2))
   return pipeline
 }
 

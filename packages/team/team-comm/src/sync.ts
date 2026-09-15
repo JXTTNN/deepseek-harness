@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { TEAM_DIR, teamCwd } from './shared'
+import { TEAM_DIR, assertSafeTeamId, teamCwd } from './shared'
 
 // -- Constants ------------------------------------------------------------
 
@@ -52,7 +52,9 @@ function syncDir(agent: { session: { header?: { cwd?: string } } }): string {
 }
 
 function claimFile(agent: { session: { header?: { cwd?: string } } }, id: string): string {
-  return join(syncDir(agent), `${id}.json`)
+  // The id arrives from a model-controlled tool argument and is interpolated
+  // into a path, so validate it here: every caller funnels through this helper.
+  return join(syncDir(agent), `${assertSafeTeamId(id, 'sync id')}.json`)
 }
 
 function isExpired(claim: SyncClaim, now: number): boolean {

@@ -14,10 +14,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { TEAM_DIR, teamCwd } from './shared'
+import { TEAM_DIR, assertSafeTeamId, teamCwd, writeTextAtomic } from './shared'
 
 // -- Constants ------------------------------------------------------------
 
@@ -61,13 +61,9 @@ function budgetDir(agent: { session: { header?: { cwd?: string } } }): string {
 }
 
 function budgetFile(agent: { session: { header?: { cwd?: string } } }, id: string): string {
-  return join(budgetDir(agent), `${id}.json`)
-}
-
-function atomicWrite(file: string, data: string): void {
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, data)
-  renameSync(tmp, file)
+  // The id arrives from a model-controlled tool argument and is interpolated
+  // into a path, so validate it here: every caller funnels through this helper.
+  return join(budgetDir(agent), `${assertSafeTeamId(id, 'budget id')}.json`)
 }
 
 function nowISO(): string {
@@ -104,7 +100,7 @@ export function createBudget(
     updatedAt: now,
   }
 
-  atomicWrite(budgetFile(agent, budget.id), JSON.stringify(budget, null, 2))
+  writeTextAtomic(budgetFile(agent, budget.id), JSON.stringify(budget, null, 2))
   return budget
 }
 
@@ -196,7 +192,7 @@ export function recordUsage(
     budget.status = 'exceeded'
   }
 
-  atomicWrite(budgetFile(agent, id), JSON.stringify(budget, null, 2))
+  writeTextAtomic(budgetFile(agent, id), JSON.stringify(budget, null, 2))
   return budget
 }
 
@@ -267,7 +263,7 @@ export function updateBudget(
   }
 
   budget.updatedAt = nowISO()
-  atomicWrite(budgetFile(agent, id), JSON.stringify(budget, null, 2))
+  writeTextAtomic(budgetFile(agent, id), JSON.stringify(budget, null, 2))
   return budget
 }
 
@@ -285,7 +281,7 @@ export function resetUsage(
   budget.status = 'active'
   budget.updatedAt = nowISO()
 
-  atomicWrite(budgetFile(agent, id), JSON.stringify(budget, null, 2))
+  writeTextAtomic(budgetFile(agent, id), JSON.stringify(budget, null, 2))
   return budget
 }
 

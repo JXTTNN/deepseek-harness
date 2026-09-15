@@ -84,6 +84,32 @@ jobs:
     # Bounded file parallelism (DSH_E2E_MAX_WORKERS), 120s/test, retry 2. 45m
     # still bounds retry storms against a slow API while the happy path fans out.
     timeout-minutes: 45
+    env:
+      # Single source of truth for the credential PAIR the preflight and the
+      # test step use, so the two can never disagree about which key is being
+      # sent to which endpoint.
+      #
+      # The pair must be resolved TOGETHER, never independently. Resolving the
+      # key and the base URL from two separate fallback chains let a key
+      # belonging to one provider be sent to a different provider's endpoint
+      # (CUSTOM_API_KEY won the key chain while DSH_BASE_URL won the URL chain),
+      # so every real-model call failed. Because a failed call surfaces as a
+      # hang rather than an error, each such test burned its full
+      # 120s x 3-attempt retry budget instead of failing fast, the job never
+      # finished inside 45m, and the cancellation hid the real cause — the lane
+      # has produced 0 successes in every run on record.
+      #
+      # Pairing rule: an explicit `api_base_url` input is by definition a CUSTOM
+      # endpoint and therefore pairs with CUSTOM_API_KEY. With no such input we
+      # target the default gateway (DSH_BASE_URL), which pairs with DSH_API_KEY.
+      # This mirrors the wiring in team-e2e-cloud.yml, where that pair is
+      # already proven to work.
+      DEEPSEEK_API_KEY: ${{ (github.event_name == 'workflow_dispatch' && inputs.api_base_url && secrets.CUSTOM_API_KEY)
+        || secrets.DSH_API_KEY
+        || secrets.DEEPSEEK_API_KEY_EXTERNAL
+        || secrets.CUSTOM_API_KEY
+        || secrets.DEEPSEEK_API_KEY }}
+      DEEPSEEK_BASE_URL: ${{ inputs.api_base_url || secrets.DSH_BASE_URL || secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -111,11 +137,16 @@ jobs:
       # absent, so a missing/misconfigured secret would otherwise pass as
       # "all skipped". This job only runs on trusted events (the `if:` above
       # excludes keyless PRs), so the secret MUST be present — fail loudly if not.
-      - name: Preflight (require API key)
-        env:
-          # API key fallback chain: CUSTOM_API_KEY for non-DeepSeek providers,
-          # then the DeepSeek-specific secrets, then the Cloud Detect convention.
-          DEEPSEEK_API_KEY: ${{ secrets.CUSTOM_API_KEY || secrets.DEEPSEEK_API_KEY_EXTERNAL || secrets.DSH_API_KEY || secrets.DEEPSEEK_API_KEY }}
+      #
+      # Beyond presence, actually CALL the endpoint once. A credential pair that
+      # is present but wrong (key from provider A, URL from provider B; expired
+      # key; model id absent from the gateway) is the failure this lane has kept
+      # hitting, and it is invisible to a presence-only preflight: the suite
+      # boots, every model call fails, every test sits out its full retry budget,
+      # and the 45m cap kills the job before any error is printed. Probing here
+      # converts that 45-minute cancellation into a ~15-second hard failure that
+      # names the HTTP status.
+      - name: Preflight (key present, endpoint reachable)
         run: |
           set -euo pipefail
           if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
@@ -124,8 +155,40 @@ jobs:
           fi
           echo "API key present."
           # Show which base URL will be used (without exposing the key)
-          BASE_URL="${{ inputs.api_base_url || secrets.DSH_BASE_URL || secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}"
-          echo "Using API base URL: $BASE_URL"
+          echo "Using API base URL: $DEEPSEEK_BASE_URL"
+
+          # GET /models is the cheapest authenticated round trip an
+          # OpenAI-compatible endpoint offers. Retry transient transport blips,
+          # then fail: a dead endpoint must cost seconds, not the whole budget.
+          url="${DEEPSEEK_BASE_URL%/}/models"
+          status=''
+          for attempt in 1 2 3; do
+            status="$(curl -sS -o /tmp/models.json -w '%{http_code}' \
+              -m 20 -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" "$url" || echo '000')"
+            echo "attempt ${attempt}: GET ${url} -> HTTP ${status}"
+            case "$status" in
+              2??) break ;;
+            esac
+            [ "$attempt" = 3 ] || sleep $((attempt * 5))
+          done
+
+          case "$status" in
+            2??)
+              echo "Endpoint reachable."
+              # Surface the model ids the gateway advertises; a suite whose
+              # configured model is absent here is the next thing to check.
+              head -c 400 /tmp/models.json || true
+              echo
+              ;;
+            401|403)
+              echo "::error::Endpoint rejected the credential (HTTP ${status}). The key does not belong to this endpoint — check that DSH_API_KEY pairs with DSH_BASE_URL."
+              exit 1
+              ;;
+            *)
+              echo "::error::Endpoint check failed (HTTP ${status}) for ${url}. Fix the credential/endpoint pair before spending the e2e budget."
+              exit 1
+              ;;
+          esac
 
       # The e2e suites boot the example bins in `lib` mode (DSH_EXAMPLE_MODE=lib):
       # the built artifact under plain Node, resolving plugins through real package
@@ -140,14 +203,34 @@ jobs:
       # against whatever endpoint is configured.
       - name: E2E tests (real API)
         env:
-          # API key fallback chain: CUSTOM_API_KEY for non-DeepSeek providers,
-          # then the DeepSeek-specific secrets, then the Cloud Detect convention.
-          DEEPSEEK_API_KEY: ${{ secrets.CUSTOM_API_KEY || secrets.DEEPSEEK_API_KEY_EXTERNAL || secrets.DSH_API_KEY || secrets.DEEPSEEK_API_KEY }}
-          # Base URL: workflow_dispatch input overrides secrets, which override default.
-          DEEPSEEK_BASE_URL: ${{ inputs.api_base_url || secrets.DSH_BASE_URL || secrets.DEEPSEEK_BASE_URL || 'https://api.deepseek.com' }}
+          # DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL come from the job-level env so
+          # the pair cannot drift from what the preflight just verified.
           # Custom model override (empty string for default model).
           DSH_MODEL: ${{ inputs.model || '' }}
           # Parallel workers: workflow_dispatch input or default 4.
           DSH_E2E_MAX_WORKERS: ${{ inputs.max_workers || '4' }}
           DSH_EXAMPLE_MODE: lib
-        run: pnpm run test:e2e
+        run: |
+          # Emit a machine-readable report alongside the console output. The
+          # console summary is only printed once the whole run finishes, so a
+          # job killed at the timeout cap loses every failure detail — which is
+          # exactly how this lane stayed opaque. A per-file JSON report written
+          # as tests complete survives the kill and is uploaded below.
+          mkdir -p e2e-report
+          set +e
+          pnpm run test:e2e -- --reporter=default --reporter=json --outputFile=e2e-report/results.json
+          status=$?
+          set -e
+          echo "exit status: ${status}"
+          exit "${status}"
+
+      # Always upload, including on cancellation: the report is the only record
+      # of which tests failed and why when the job is killed mid-run.
+      - name: Upload e2e report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: e2e-report/
+          if-no-files-found: warn
+          retention-days: 14

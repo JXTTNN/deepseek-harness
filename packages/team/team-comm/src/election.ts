@@ -11,11 +11,10 @@
  * @module @deepseek-ai/dsh-team-comm/election
  */
 
-import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import { TEAM_DIR, teamCwd, isSafeTeamId, readAllPresence } from './shared'
+import { TEAM_DIR, assertSafeTeamId, teamCwd, isSafeTeamId, readAllPresence, writeTextAtomic } from './shared'
 
 // -- F1: Leader Election ------------------------------------------------
 
@@ -33,7 +32,7 @@ export interface ElectionRecord {
 
 /** F1: Read an election record for a role. */
 export function readElection(agent: { session: { header?: { cwd?: string } } }, role: string): ElectionRecord | undefined {
-  const file = join(teamCwd(agent), TEAM_DIR, 'election', `${role}.json`)
+  const file = join(teamCwd(agent), TEAM_DIR, 'election', `${assertSafeTeamId(role, 'team_elect role')}.json`)
   if (!existsSync(file)) return undefined
   try {
     return JSON.parse(readFileSync(file, 'utf-8')) as ElectionRecord
@@ -46,10 +45,8 @@ export function readElection(agent: { session: { header?: { cwd?: string } } }, 
 export function writeElection(agent: { session: { header?: { cwd?: string } } }, record: ElectionRecord): void {
   const dir = join(teamCwd(agent), TEAM_DIR, 'election')
   mkdirSync(dir, { recursive: true })
-  const file = join(dir, `${record.role}.json`)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, JSON.stringify(record, null, 2))
-  renameSync(tmp, file)
+  const file = join(dir, `${assertSafeTeamId(record.role, 'election role')}.json`)
+  writeTextAtomic(file, JSON.stringify(record, null, 2))
 }
 
 /** F1: Perform deterministic election: smallest session id among live peers wins. */
@@ -89,7 +86,7 @@ export interface RoleAssignments {
 
 /** F6: Read a role definition. */
 export function readRole(agent: { session: { header?: { cwd?: string } } }, name: string): RoleDefinition | undefined {
-  const file = join(teamCwd(agent), TEAM_DIR, 'roles', `${name}.json`)
+  const file = join(teamCwd(agent), TEAM_DIR, 'roles', `${assertSafeTeamId(name, 'team_role name')}.json`)
   if (!existsSync(file)) return undefined
   try {
     return JSON.parse(readFileSync(file, 'utf-8')) as RoleDefinition
@@ -102,10 +99,8 @@ export function readRole(agent: { session: { header?: { cwd?: string } } }, name
 export function writeRole(agent: { session: { header?: { cwd?: string } } }, role: RoleDefinition): void {
   const dir = join(teamCwd(agent), TEAM_DIR, 'roles')
   mkdirSync(dir, { recursive: true })
-  const file = join(dir, `${role.name}.json`)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, JSON.stringify(role, null, 2))
-  renameSync(tmp, file)
+  const file = join(dir, `${assertSafeTeamId(role.name, 'role name')}.json`)
+  writeTextAtomic(file, JSON.stringify(role, null, 2))
 }
 
 /** F6: Read all role assignments. */
@@ -124,9 +119,7 @@ export function writeRoleAssignments(agent: { session: { header?: { cwd?: string
   const dir = join(teamCwd(agent), TEAM_DIR, 'roles')
   mkdirSync(dir, { recursive: true })
   const file = join(dir, 'assignments.json')
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, JSON.stringify(assignments, null, 2))
-  renameSync(tmp, file)
+  writeTextAtomic(file, JSON.stringify(assignments, null, 2))
 }
 
 // -- F10: Auto-Assign State ---------------------------------------------
@@ -147,9 +140,7 @@ export function writeAutoAssignState(agent: { session: { header?: { cwd?: string
   const file = join(teamCwd(agent), TEAM_DIR, 'auto_assign_state.json')
   const dir = dirname(file)
   mkdirSync(dir, { recursive: true })
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, JSON.stringify(state))
-  renameSync(tmp, file)
+  writeTextAtomic(file, JSON.stringify(state))
 }
 
 // -- Agent Spec Definitions ---------------------------------------------
@@ -172,7 +163,7 @@ export interface AgentSpec {
 
 /** Read an agent spec. */
 export function readAgentSpec(agent: { session: { header?: { cwd?: string } } }, name: string): AgentSpec | undefined {
-  const file = join(teamCwd(agent), TEAM_DIR, 'agents', `${name}.json`)
+  const file = join(teamCwd(agent), TEAM_DIR, 'agents', `${assertSafeTeamId(name, 'team_agent_define name')}.json`)
   if (!existsSync(file)) return undefined
   try {
     return JSON.parse(readFileSync(file, 'utf-8')) as AgentSpec
@@ -185,8 +176,6 @@ export function readAgentSpec(agent: { session: { header?: { cwd?: string } } },
 export function writeAgentSpec(agent: { session: { header?: { cwd?: string } } }, spec: AgentSpec): void {
   const dir = join(teamCwd(agent), TEAM_DIR, 'agents')
   mkdirSync(dir, { recursive: true })
-  const file = join(dir, `${spec.name}.json`)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, JSON.stringify(spec, null, 2))
-  renameSync(tmp, file)
+  const file = join(dir, `${assertSafeTeamId(spec.name, 'agent name')}.json`)
+  writeTextAtomic(file, JSON.stringify(spec, null, 2))
 }
