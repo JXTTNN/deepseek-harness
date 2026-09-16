@@ -114,7 +114,7 @@ async function runScenario(kind: ManagedKind, trigger: ExitTrigger) {
   // rejection. Record it as soon as it happens: a host that dies before it is
   // ready must fail the test on the next poll tick with its own stderr, instead
   // of burning the whole boot budget and reporting an opaque ENOENT.
-  let earlyExit: { exitCode: number; signal?: string; stderr: string } | undefined
+  let earlyExit: { exitCode: number | undefined; signal: string | undefined; stderr: string } | undefined
   void child.then((early) => {
     earlyExit = { exitCode: early.exitCode, signal: early.signal, stderr: early.stderr }
   })
