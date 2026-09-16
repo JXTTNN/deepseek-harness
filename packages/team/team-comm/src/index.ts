@@ -160,17 +160,17 @@ export function apply(ctx: Context): void {
     try { writePresence(ctx.agent) } catch { /* best-effort */ }
   }
 
-  // ?? dynamic team state context (evaluated at every assembly) ??????????????
+  // -- dynamic team state context (evaluated at every assembly) --------------
 
   ctx.systemPrompt.context({
     name: 'team:state',
     order: 0,
     text: () => {
-      return 'TEAM STATE: You are in a team. Call team_inbox EVERY turn to check for messages. Call team_list to discover peers. Use team_send to communicate (with priority for urgent messages). If you receive a message, you MUST reply to the sender with team_send(reply_to: msgId). To make the team greater than one agent, share a task board with team_task (priority/deadline/assignee + auto-notify), orchestrate complex multi-step work with team_workflow (DAG execution engine), persist decisions with team_memory (with MVCC cas for conflict-free updates, and recall topics with team_memory action=search), fan work out to every peer with team_broadcast + team_collect, verify results independently with team_review + team_review_collect (with structured evidence validation), synchronize phases with team_barrier, file structured reports with team_report (with structured evidence), audit and replay collaboration with team_audit, and get a one-shot health snapshot with team_status.'
+      return 'TEAM STATE: You are in a team. Call team_inbox EVERY turn to check for messages. Call team_list to discover peers. Use team_send to communicate (with priority for urgent messages). If you receive a message, you MUST reply to the sender with team_send(reply_to: msgId). To make the team greater than one agent, share a task board with team_task (priority/deadline/assignee + auto-notify), transfer an ongoing task to a better-suited peer with team_handoff (structured ownership transfer + auto-notify), orchestrate complex multi-step work with team_workflow (DAG execution engine), persist decisions with team_memory (with MVCC cas for conflict-free updates, and recall topics with team_memory action=search), fan work out to every peer with team_broadcast + team_collect, verify results independently with team_review + team_review_collect (with structured evidence validation), synchronize phases with team_barrier, file structured reports with team_report (with structured evidence), audit and replay collaboration with team_audit, and get a one-shot health snapshot with team_status.'
     },
   })
 
-  // ?? mandatory protocol section (always visible) ???????????????????????????
+  // -- mandatory protocol section (always visible) ---------------------------
 
   ctx.systemPrompt.section({
     name: 'team:protocol',
@@ -184,7 +184,7 @@ export function apply(ctx: Context): void {
       + '(5) You are a TEAM MEMBER. You have peers who depend on you. If you ignore their messages, the team fails. '
       + '(6) MULTI-STEP WORKFLOW: When coordinating a task with multiple steps, after receiving a reply from one peer, IMMEDIATELY send the next step to the next peer. '
       + 'Do NOT wait for the user to prompt you. Continue the chain automatically. '
-      + 'Example: if you told 2? to research, and 2? replied, NOW send the result to 3? without waiting. '
+      + 'Example: if you told peer 2 to research, and peer 2 replied, NOW send the result to peer 3 without waiting. '
       + '(7) When you receive a task, ACTUALLY do the work - write files, run commands, verify results. Reply with results, not intentions. '
       + 'CRITICAL: team_send and team_inbox are the ONLY way to communicate with peers. '
       + 'When the user tells you to send a message or delegate a task to a peer, you MUST call team_send IMMEDIATELY. '
@@ -193,10 +193,12 @@ export function apply(ctx: Context): void {
       + 'If you type text instead of calling team_send, your peer will NEVER receive the message. '
       + '(8) Delegate bounded, fresh-context work with the subagent tool; use team_send only for peer negotiation or stateful, long-lived roles. '
       + '(9) Before assigning implementation work, the coordinator states the contract: files each worker owns (writeSet), and how completion is verified (acceptance). Overlapping ownership is a bug. '
-      + '(10) A worker that finishes a team_task MUST call team_report with filesChanged and evidence, then mark the task done.',
+      + '(10) A worker that finishes a team_task MUST call team_report with filesChanged and evidence, then mark the task done. '
+      + '(11) When an ONGOING task is stuck, overloaded, or needs capability you lack, transfer it with team_handoff(action:"create", taskId, toSession, reason, context) instead of stalling silently or duplicating the work. The target is notified immediately and MUST answer with team_handoff(action:"accept"|"reject", id) - the transfer is not settled until it does, and the originator must not cancel a handoff that is already completed. '
+      + '(12) Before calling team_wrap, list the handoffs you are party to with team_handoff(action:"list", status:"pending") and settle them; team_status reports pendingHandoffs for the same reason. An unresolved handoff leaves the task with no owner.',
   })
 
-  // ?? team_send ??????????????????????????????????????????????????????????
+  // -- team_send ----------------------------------------------------------
 
   ctx.tools.register(defineTool({
     name: 'team_send',
@@ -379,7 +381,7 @@ export function apply(ctx: Context): void {
     },
   }))
 
-  // ?? team_inbox ?????????????????????????????????????????????????????????
+  // -- team_inbox ---------------------------------------------------------
 
   ctx.tools.register(defineTool({
     name: 'team_inbox',
@@ -486,7 +488,7 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // ?? team_list ??????????????????????????????????????????????????????????
+  // -- team_list ----------------------------------------------------------
 
   ctx.tools.register(defineTool({
     name: 'team_list',
@@ -565,7 +567,7 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // ?? think (deep reasoning 4-pass, persistent) ???????????????????????????
+  // -- think (deep reasoning 4-pass, persistent) ---------------------------
 
   ctx.tools.register(defineTool({
     name: 'think',
@@ -652,7 +654,7 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // ?? team_think_read ?????????????????????????????????????????????????????
+  // -- team_think_read -----------------------------------------------------
 
   ctx.tools.register(defineTool({
     name: 'team_think_read',
@@ -741,7 +743,7 @@ export function apply(ctx: Context): void {
     }),
   }))
 
-  // ?? team_broadcast + team_collect (fan-out / fan-in) ??????????????????????
+  // -- team_broadcast + team_collect (fan-out / fan-in) ----------------------
   // Map-reduce parallelisation: one coordinator fans one task out to every
   // peer and later collects each answer. This is the wall-clock parallel
   // speedup a single conversation cannot provide.
@@ -898,7 +900,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Collect broadcast replies', kind: 'read' as const }),
   }))
 
-  // ?? team_task (shared durable task board) ?????????????????????????????????
+  // -- team_task (shared durable task board) ---------------------------------
   // A visible division of labour with a state machine and dependencies. A
   // single conversation holds everything in one head; a team needs an external
   // board so every peer sees who owns what and what is blocked on what.
@@ -1111,7 +1113,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Task board: ${args.action}`, kind: 'other' as const }),
   }))
 
-  // ?? team_report (fixed-schema fan-in report) ???????????????????????????????
+  // -- team_report (fixed-schema fan-in report) -------------------------------
   // Fan-in is parent-only with a fixed report schema: the coordinator merges
   // artifacts, not transcripts. Each finished task gets exactly one structured
   // record in .team/reports/<taskId>.json plus a ping to the task creator.
@@ -1222,7 +1224,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Report task ${args.taskId.slice(0, 8)}.`, kind: 'other' as const }),
   }))
 
-  // ?? team_wrap (explicit termination - coordinator shutdown protocol) ????????
+  // -- team_wrap (explicit termination - coordinator shutdown protocol) --------
   // Termination is explicit, not assumed: the coordinator archives counts +
   // summary, drops a WRAP marker (which flips off the team_status wrapHint),
   // drains every inbox, and tells each live peer to go idle.
@@ -1329,7 +1331,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Wrap up the team', kind: 'other' as const }),
   }))
 
-  // ?? team_memory (shared durable memory) ????????????????????????????????????
+  // -- team_memory (shared durable memory) ------------------------------------
   // The cross-session stand-in for a single conversation's shared transcript:
   // decisions and facts persist so peers never re-derive or re-transmit context.
 
@@ -1465,7 +1467,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Team memory: ${args.action}`, kind: 'other' as const }),
   }))
 
-  // ?? team_review (independent multi-party verification) ?????????????????????
+  // -- team_review (independent multi-party verification) ---------------------
   // Evaluator/critic pattern: a second session independently checks a result
   // before it is reported. This is the "many eyes" check a single conversation
   // cannot give itself.
@@ -1531,7 +1533,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Request review: ${args.subject}`, kind: 'other' as const }),
   }))
 
-  // ?? team_review_collect (collect verdicts - closes the review loop) ?????????
+  // -- team_review_collect (collect verdicts - closes the review loop) ---------
 
   ctx.tools.register(defineTool({
     name: 'team_review_collect',
@@ -1612,7 +1614,7 @@ export function apply(ctx: Context): void {
     presentCall: () => ({ card: 'generic' as const, title: 'Collect review verdicts', kind: 'read' as const }),
   }))
 
-  // ?? team_status (one-shot team health snapshot) ?????????????????????????????
+  // -- team_status (one-shot team health snapshot) -----------------------------
 
   ctx.tools.register(defineTool({
     name: 'team_status',
@@ -1683,6 +1685,14 @@ export function apply(ctx: Context): void {
         rollup[t.status] = (rollup[t.status] ?? 0) + 1
       }
 
+      // A handoff is an independent pending state: a task mid-transfer is
+      // neither OPEN nor terminal, so without this it is invisible here and the
+      // wrapHint below would cheerfully tell the coordinator to close a mission
+      // while a task is still changing hands.
+      const pendingHandoffs = listHandoffs(agent, { status: 'pending' })
+        .filter(h => h.fromSession === agent.session.id || h.toSession === agent.session.id)
+        .length
+
       // Explicit termination hint: with every task terminal and no WRAP marker
       // yet, the coordinator should close the mission instead of letting peers
       // idle indefinitely. An empty board never hints - nothing was ever run.
@@ -1690,18 +1700,20 @@ export function apply(ctx: Context): void {
       if (allTasks.length > 0
         && allTasks.every(t => t.status === 'done' || t.status === 'blocked')
         && !existsSync(teamPath(agent, 'WRAP'))) {
-        wrapHint = 'All tasks terminal - call team_wrap to archive and release peers.'
+        wrapHint = pendingHandoffs > 0
+          ? `${pendingHandoffs} handoff(s) still pending - accept or reject them with team_handoff before calling team_wrap.`
+          : 'All tasks terminal - call team_wrap to archive and release peers.'
       }
 
       return Promise.resolve({
-        self: agent.session.id, peers, unread, pendingBroadcasts, pendingReviews, tasks: rollup,
+        self: agent.session.id, peers, unread, pendingBroadcasts, pendingReviews, pendingHandoffs, tasks: rollup,
         ...wrapHint !== undefined ? { wrapHint } : {},
       })
     },
     presentCall: () => ({ card: 'generic' as const, title: 'Team status snapshot', kind: 'read' as const }),
   }))
 
-  // ?? team_barrier (named fan-in synchronization) ?????????????????????????????
+  // -- team_barrier (named fan-in synchronization) -----------------------------
 
   ctx.tools.register(defineTool({
     name: 'team_barrier',
@@ -1763,7 +1775,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Barrier ${args.action}: ${args.name}`, kind: 'other' as const }),
   }))
 
-  // ?? team_workflow (F3: DAG execution engine) ????????????????????????????????
+  // -- team_workflow (F3: DAG execution engine) --------------------------------
   // Declarative DAG workflow: a coordinator defines nodes (tasks) with
   // dependencies, and the engine auto-schedules ready nodes (deps satisfied)
   // as team_tasks. When a node completes, the next dependent nodes become ready.
@@ -1963,7 +1975,7 @@ export function apply(ctx: Context): void {
     presentCall: args => ({ card: 'generic' as const, title: `Workflow ${args.action}: ${args.name}`, kind: 'other' as const }),
   }))
 
-  // ?? team_audit (F9: collaboration replay & audit) ???????????????????????????
+  // -- team_audit (F9: collaboration replay & audit) ---------------------------
   // Merges all .team/*.jsonl event logs into a unified timeline for replay,
   // audit, and statistics. Supports filtering by time range, session, and
   // action type.
@@ -2639,7 +2651,7 @@ export function apply(ctx: Context): void {
     presentCall: (args: any) => ({ card: 'generic' as const, title: `Agent ${args.action}`, kind: 'other' as const }),
   }))
 
-  // ?? session_delete tool ???????????????????????????????????????????????????
+  // -- session_delete tool ---------------------------------------------------
 
   ctx.tools.register(defineTool({
     name: 'session_delete',
@@ -2735,9 +2747,9 @@ export function apply(ctx: Context): void {
   // "deep-research"]) at spawn time. The tool searches ctx.skills for each
   // name, renders the matching SKILL.md bodies, and prepends them to the
   // subagent's prompt. The injection is ephemeral - it lives only in the
-  // child's prompt, not in any persistent config - so "?????" is
+  // child's prompt, not in any persistent config - so the injection is
   // automatic: when the child disposes, the skill text goes with it.
-  // "??????" means every team_spawn call re-queries ctx.skills; no
+  // Per-call loading: every team_spawn call re-queries ctx.skills; no
   // cache, no pre-configuration.
   // ==========================================================================
 
@@ -2766,7 +2778,7 @@ export function apply(ctx: Context): void {
     /**
      * Search and load skills by name from ctx.skills. Returns a prompt prefix
      * containing all found skill bodies, or an empty string if none found.
-     * "??????": every call re-queries the skill registry; no caching.
+     * Live: every call re-queries the skill registry; no caching.
      */
     async function loadSkillsForSpawn(
       skillNames: string[],
@@ -2899,7 +2911,6 @@ export function apply(ctx: Context): void {
         const skillNames: string[] = Array.isArray(args.skills) ? args.skills : []
         const cwd = teamCwd(agent)
 
-        // "??????": load skills on demand for this spawn
         // "live": load local skills on demand for this spawn
         const { prefix: skillPrefix, found: skillsFound, missing: skillsMissing } = await loadSkillsForSpawn(skillNames, cwd, exec.signal)
 
@@ -4753,6 +4764,7 @@ export function apply(ctx: Context): void {
       'Formal task ownership transfer between peer agents. When an agent is stuck,'
       + ' overloaded, or needs to transfer an ongoing task to another agent with better'
       + ' capabilities, a handoff provides a structured transfer with working context.'
+      + ' create notifies the target peer immediately, so it does not have to poll.'
       + ' Actions: create (initiate a handoff), accept (target session accepts),'
       + ' reject (target session rejects), complete (accepting agent marks done),'
       + ' cancel (originator cancels), list (list handoffs), read (read a handoff),'
@@ -4776,6 +4788,7 @@ export function apply(ctx: Context): void {
           action: { type: 'string', required: true },
           handoff: { type: 'json' },
           handoffs: { type: 'array', items: { type: 'json' } },
+          notified: { type: 'boolean' },
           deleted: { type: 'boolean' },
         },
       },
@@ -4789,13 +4802,27 @@ export function apply(ctx: Context): void {
           if (!args.taskId) throw new Error('team_handoff create: taskId required')
           if (!args.toSession) throw new Error('team_handoff create: toSession required')
           if (!args.reason) throw new Error('team_handoff create: reason required')
+          const toSession = assertSafeTeamId(args.toSession, 'team_handoff toSession')
+          // A transfer to yourself is a no-op that still blocks the task until
+          // someone accepts it, so reject it rather than parking the work.
+          if (toSession === agent.session.id) throw new Error('team_handoff create: cannot hand off a task to yourself')
           const handoff = createHandoff(agent, {
-            taskId: args.taskId,
-            toSession: args.toSession,
+            taskId: assertSafeTeamId(args.taskId, 'team_handoff taskId'),
+            toSession,
             reason: args.reason,
             context: args.context ?? '',
           })
-          return { action: 'create', handoff }
+          // Auto-notify the target, exactly like team_task create notifies its
+          // assignee. Without this the handoff sat in a file nobody was told to
+          // read: the receiver could only discover it by polling team_handoff
+          // list, so the task stalled — the very outcome a handoff exists to
+          // prevent. Best-effort: the handoff file is the source of truth.
+          let notified = false
+          try {
+            await notifyPeer(agent, toSession, `[team_handoff] ${agent.session.id.slice(0, 8)}. wants to hand you the ongoing task "${args.taskId}". Reason: ${args.reason}${handoff.context ? ` Context: ${handoff.context.slice(0, 300)}` : ''}.\nAnswer with team_handoff(action:"accept"|"reject", id:"${handoff.id}") - the task has no clear owner until you do.`)
+            notified = true
+          } catch { /* notification is best-effort; the handoff file is the source of truth */ }
+          return { action: 'create', handoff, notified }
         }
 
         case 'accept': {

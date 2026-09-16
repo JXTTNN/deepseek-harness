@@ -8,7 +8,7 @@
  * - File-system helpers (withFileLock, lockedAppend, lockedUpdate, readJsonl, etc.)
  * - Presence management (writePresence, readAllPresence, peerIds)
  * - Message delivery (deliverMessage, triggerSession, notifyPeer)
- * - Memory search (tokenizeForMemory, rankMemoryEntries 鈥?BM25-lite)
+ * - Memory search (tokenizeForMemory, rankMemoryEntries — BM25-lite)
  * - Glob utilities (normalizeGlob, writeSetsOverlap)
  *
  * @module @deepseek-ai/dsh-team-comm/shared
@@ -53,7 +53,7 @@ export const FILE_LOCK_HEARTBEAT_MS = 2_000
 export const MAX_INBOX_MESSAGES = 500
 
 /** Suppress a send only when an identical (sender, message) landed within this
- *  window 鈥?an accidental double-send 鈥?never a legitimate later repeat. */
+ *  window — an accidental double-send — never a legitimate later repeat. */
 export const DEDUP_WINDOW_MS = 5000
 
 /** Append-only ledgers (tasks, sent, outbox, reviews, memory) are trimmed to
@@ -322,7 +322,7 @@ export function lockedAppend(file: string, record: unknown): Promise<void> {
   return withFileLock(file, () => {
     writeFileSync(file, JSON.stringify(record) + '\n', { flag: 'a' })
     // Amortised bound: only when the ledger is already large, rewrite it to its
-    // tail. Best-effort 鈥?a trim failure must never fail the append itself.
+    // tail. Best-effort — a trim failure must never fail the append itself.
     try {
       if (statSync(file).size > MAX_APPEND_FILE_BYTES) {
         const records = readJsonlStrict<unknown>(file)
@@ -349,14 +349,14 @@ export function lockedUpdate<T>(file: string, mutate: (records: T[]) => T[]): Pr
 // ---------------------------------------------------------------------------
 
 /** Read a JSONL file, returning an array of parsed objects. A whole-file read
- *  error returns `[]` 鈥?suitable only for READ-ONLY consumers where an empty
+ *  error returns `[]` — suitable only for READ-ONLY consumers where an empty
  *  result is acceptable. Read-modify-write paths must use `readJsonlStrict`. */
 export function readJsonl<T>(path: string): T[] {
   if (!existsSync(path)) return []
   try {
     return parseJsonl<T>(readFileSync(path, 'utf-8'))
   } catch {
-    // File read error (permission, transient AV lock, etc.) 鈥?return empty.
+    // File read error (permission, transient AV lock, etc.) — return empty.
     return []
   }
 }
@@ -372,7 +372,7 @@ export function readJsonlStrict<T>(path: string): T[] {
   return parseJsonl<T>(readFileSync(path, 'utf-8'))
 }
 
-/** Parse only the last `n` records of a JSONL file without parsing the bulk 鈥?
+/** Parse only the last `n` records of a JSONL file without parsing the bulk —
  *  used for the cheap dedup window and reply lookups on a long inbox. */
 export function readTailJsonl<T>(path: string, n: number): T[] {
   if (!existsSync(path) || n <= 0) return []
@@ -398,7 +398,7 @@ export function parseJsonl<T>(raw: string): T[] {
     try {
       result.push(JSON.parse(line) as T)
     } catch {
-      // Skip malformed lines 鈥?don't lose the whole file over one bad line.
+      // Skip malformed lines — don't lose the whole file over one bad line.
     }
   }
   return result
@@ -500,14 +500,14 @@ export function readAllPresence(agent: { session: { header?: { cwd?: string } } 
       const raw = readFileSync(filePath, 'utf-8')
       const record = JSON.parse(raw) as PresenceRecord
       const age = now - new Date(record.ts).getTime()
-      // Stale, or carrying a corrupt/absent timestamp or unsafe id 鈥?remove it.
+      // Stale, or carrying a corrupt/absent timestamp or unsafe id — remove it.
       if (Number.isNaN(age) || age > PRESENCE_STALE_MS || typeof record.id !== 'string' || !isSafeTeamId(record.id)) {
         try { unlinkSync(filePath) } catch { /* best-effort */ }
         continue
       }
       records.push(record)
     } catch {
-      // Corrupted 鈥?remove it.
+      // Corrupted — remove it.
       try { unlinkSync(filePath) } catch { /* best-effort */ }
     }
   }
@@ -671,7 +671,7 @@ export function normalizeGlob(glob: string): string {
 
 /** Naive writeSet overlap: two globs conflict when they are exactly equal or
  *  one is a directory prefix of the other (single most effective conflict
- *  avoidance rule 鈥?file-ownership partitioning; overlapping ownership is a bug). */
+ *  avoidance rule — file-ownership partitioning; overlapping ownership is a bug). */
 export function writeSetsOverlap(a: string, b: string): boolean {
   const na = normalizeGlob(a)
   const nb = normalizeGlob(b)

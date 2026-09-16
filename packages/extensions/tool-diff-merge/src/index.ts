@@ -6,10 +6,10 @@
  * theirs (their changes) and produces a merged result. It first attempts a
  * line-level three-way merge using LCS to identify changed regions. When both
  * sides modify the same region, the `strategy` decides the outcome:
- *  - `"ours"`   鈫?take our version
- *  - `"theirs"` 鈫?take their version
- *  - `"union"`  鈫?concatenate both (ours then theirs)
- *  - `"ast"`    鈫?attempt structural merge via brace-matching for JS/TS, fall
+ *  - `"ours"`   → take our version
+ *  - `"theirs"` → take their version
+ *  - `"union"`  → concatenate both (ours then theirs)
+ *  - `"ast"`    → attempt structural merge via brace-matching for JS/TS, fall
  *                  back to line-level on failure
  *
  * @module @deepseek-ai/dsh-tool-diff-merge
@@ -150,7 +150,7 @@ function lineLevelMerge(
     } else {
       // Conflict: both sides changed differently.
       if (arraysEqual(chunk.oursContent, chunk.theirsContent)) {
-        // Same change on both sides 鈥?not a real conflict.
+        // Same change on both sides — not a real conflict.
         merged.push(...chunk.oursContent)
         lineNum += chunk.oursContent.length
       } else {
@@ -259,7 +259,7 @@ function diff3Chunks(base: string[], ours: string[], theirs: string[]): Chunk[] 
     } else if (oursChanged && theirsChanged) {
       chunks.push({ type: 'conflict', oursContent: oursRegion, theirsContent: theirsRegion })
     } else {
-      // Neither changed 鈥?stable.
+      // Neither changed — stable.
       if (baseRegion.length > 0) chunks.push({ type: 'stable', content: baseRegion })
     }
   }
@@ -334,16 +334,16 @@ function tryAstMerge(base: string[], ours: string[], theirs: string[]): MergeRes
     const theirsIdx = findBlockBySignature(theirsBlocks, sig, theirsUsed)
 
     if (baseIdx === undefined && theirsIdx === -1) {
-      // New block in ours, not in theirs 鈥?keep it.
+      // New block in ours, not in theirs — keep it.
       result.push(...ourBlock)
       lineNum += ourBlock.length
     } else if (baseIdx !== undefined && theirsIdx === -1) {
-      // Block exists in base, deleted in theirs 鈥?check if ours modified it.
+      // Block exists in base, deleted in theirs — check if ours modified it.
       const baseBlock = baseBlocks[baseIdx]!
       if (arraysEqual(ourBlock, baseBlock)) {
-        // Ours unchanged, theirs deleted 鈥?delete (take theirs).
+        // Ours unchanged, theirs deleted — delete (take theirs).
       } else {
-        // Ours modified, theirs deleted 鈥?conflict, keep ours.
+        // Ours modified, theirs deleted — conflict, keep ours.
         result.push(...ourBlock)
         const start = lineNum
         lineNum += ourBlock.length
@@ -354,11 +354,11 @@ function tryAstMerge(base: string[], ours: string[], theirs: string[]): MergeRes
       const baseBlock = baseBlocks[baseIdx]!
       const theirsBlock = theirsBlocks[theirsIdx]!
       if (arraysEqual(ourBlock, baseBlock)) {
-        // Ours unchanged 鈥?take theirs.
+        // Ours unchanged — take theirs.
         result.push(...theirsBlock)
         lineNum += theirsBlock.length
       } else if (arraysEqual(theirsBlock, baseBlock)) {
-        // Theirs unchanged 鈥?take ours.
+        // Theirs unchanged — take ours.
         result.push(...ourBlock)
         lineNum += ourBlock.length
       } else if (arraysEqual(ourBlock, theirsBlock)) {
@@ -366,7 +366,7 @@ function tryAstMerge(base: string[], ours: string[], theirs: string[]): MergeRes
         result.push(...ourBlock)
         lineNum += ourBlock.length
       } else {
-        // Both modified differently 鈥?conflict, take ours.
+        // Both modified differently — conflict, take ours.
         result.push(...ourBlock)
         const start = lineNum
         lineNum += ourBlock.length

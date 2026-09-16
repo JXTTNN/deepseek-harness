@@ -437,7 +437,7 @@ export function assertApprovalDecision(
 
 /**
  * Type guard: returns `true` if `value` is a valid `DurableApprovalRequest`.
- * Unlike `assertApprovalRequest`, this does not throw 鈥?it returns a boolean.
+ * Unlike `assertApprovalRequest`, this does not throw — it returns a boolean.
  */
 export function isApprovalRequest(value: unknown): value is DurableApprovalRequest {
   try {
@@ -449,7 +449,7 @@ export function isApprovalRequest(value: unknown): value is DurableApprovalReque
 }
 
 // ---------------------------------------------------------------------------
-// DurableApprovalLedger 鈥?file-system-backed approval store
+// DurableApprovalLedger — file-system-backed approval store
 // ---------------------------------------------------------------------------
 
 /**
@@ -458,7 +458,7 @@ export function isApprovalRequest(value: unknown): value is DurableApprovalReque
  * Each approval request is stored as a JSON file at
  * `.team/approvals/<requestId>.json`. The ledger guarantees:
  *
- * - **Idempotent request creation**: `ensureRequest` is atomic 鈥?if a request
+ * - **Idempotent request creation**: `ensureRequest` is atomic — if a request
  *   with the same ID already exists, the existing record is returned without
  *   modification.
  * - **First-decision-wins**: `decide` atomically checks for an existing
@@ -498,7 +498,7 @@ export class DurableApprovalLedger {
       mkdirSync(this.dir, { recursive: true })
 
       if (existsSync(filePath)) {
-        // Request already exists 鈥?return the stored record.
+        // Request already exists — return the stored record.
         const raw = readFileSync(filePath, 'utf8')
         const existing = JSON.parse(raw) as ApprovalRecord
         // Verify integrity of the stored request.
@@ -595,7 +595,7 @@ export class DurableApprovalLedger {
         if (record.decision.decision === (input.decision === 'approve' ? 'approved' : 'rejected')) {
           return record.decision
         }
-        // A different decision already exists 鈥?stale decision.
+        // A different decision already exists — stale decision.
         throw new DurableApprovalError(
           'APPROVAL_STALE_DECISION',
           `Approval request ${input.requestId} already has a decision (${record.decision.decision}).`,

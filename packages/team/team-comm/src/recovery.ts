@@ -1,28 +1,28 @@
 /**
- * recovery.ts - ???????
+ * recovery.ts - Recovery and replanning for failed task outcomes.
  *
- * ??????????,????????????
- * ?? open-multi-agent (OMA) ? orchestrator/recovery.ts,
- * ??? deepseek-harness ????????
+ * Turns a failed task outcome into a validated plan patch. The design is
+ * adapted from open-multi-agent (OMA) orchestrator/recovery.ts, and
+ * trimmed down to what deepseek-harness actually needs.
  *
- * ????:
- * - PlanPatch:?????????(addTasks / retargetPending / supersedePending)
- * - Replanner:??????????????
- * - onPlanPatch:????,?????????
- * - ??:maxPlanRevisions(??3)?maxAddedTasks(??20)
+ * Contents:
+ * - PlanPatch: a plan revision with three operations (addTasks / retargetPending / supersedePending)
+ * - Replanner: produces and applies a plan patch for an outcome
+ * - onPlanPatch: notified when a patch is produced, so callers can accept or veto it
+ * - Defaults: maxPlanRevisions(3), maxAddedTasks(20)
  */
 
 // ---------------------------------------------------------------------------
-// ????
+// Types
 // ---------------------------------------------------------------------------
 
-/** ????:fixed = ????,repairable = ???? */
+/** Recovery mode: fixed = never replan, repairable = allow replanning. */
 export type RecoveryMode = 'fixed' | 'repairable'
 
-/** ?????? */
+/** The three ways a task can finish. */
 export type TaskOutcomeKind = 'success' | 'failure' | 'verification_rejected'
 
-/** ???? - ?????????????? */
+/** Immutable snapshot of one task - the shape a plan patch reasons about. */
 export interface TaskSnapshot {
   id: string
   title: string
@@ -34,7 +34,7 @@ export interface TaskSnapshot {
   updatedAt: string
 }
 
-/** ?????? */
+/** A finished task plus its result and verification verdict. */
 export interface TaskOutcome {
   kind: TaskOutcomeKind
   task: TaskSnapshot
@@ -44,29 +44,29 @@ export interface TaskOutcome {
   tasks: TaskSnapshot[]
 }
 
-/** ????????? */
+/** One task to add, before it is materialised with a real ID. */
 export interface PlanPatchTask {
-  /** ?????,??? dependsOn ??? */
+  /** Stable key identifying this task within the patch; referenced by dependsOn. */
   key: string
   title: string
   description: string
   assignee?: string
-  /** ????????? key ????? ID */
+  /** Patch keys or existing task IDs this task waits on. */
   dependsOn?: string[]
 }
 
-/** ?????????? assignee */
+/** Move an existing pending task to a different assignee. */
 export interface PlanPatchRetarget {
   taskId: string
   assignee: string
 }
 
-/** ??????????? */
+/** Supersede an existing task, dropping it from the plan. */
 export interface PlanPatchSupersede {
   taskId: string
 }
 
-/** ????????? */
+/** A single plan revision: why, plus the operations to apply. */
 export interface PlanPatch {
   reason: string
   addTasks?: PlanPatchTask[]
@@ -74,7 +74,7 @@ export interface PlanPatch {
   supersedePending?: PlanPatchSupersede[]
 }
 
-/** ????(????) */
+/** Recovery configuration (all optional; per-run values win over these). */
 export interface RecoveryOptions {
   mode?: RecoveryMode
   replanner?: Replanner
@@ -84,13 +84,13 @@ export interface RecoveryOptions {
   maxAddedTasks?: number
 }
 
-/** ?????? - ?????????????? */
+/** Replanner - an object that turns an outcome into a plan patch. */
 export interface Replanner {
   name: string
   replan(outcome: TaskOutcome): PlanPatch | undefined
 }
 
-/** ????????(?????) */
+/** Recovery options with defaults filled in (what the runtime consumes). */
 export interface ResolvedRecoveryOptions {
   mode: RecoveryMode
   onTaskOutcome?: (outcome: TaskOutcome) => PlanPatch | undefined
@@ -100,15 +100,15 @@ export interface ResolvedRecoveryOptions {
 }
 
 // ---------------------------------------------------------------------------
-// ????
+// Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * ???????,???????? fallback?
- * @param value - ??????
- * @param fallback - ???
- * @param name - ???(??????)
- * @returns ???????
+ * Return a validated positive integer, or the fallback when it is unset.
+ * @param value - candidate value (undefined/null means "unset")
+ * @param fallback - value used when it is unset
+ * @param name - option name, used in the error message
+ * @returns the resolved positive integer
  */
 function positiveInteger(value: number | undefined, fallback: number, name: string): number {
   if (value === undefined || value === null) {
@@ -121,29 +121,29 @@ function positiveInteger(value: number | undefined, fallback: number, name: stri
 }
 
 // ---------------------------------------------------------------------------
-// ????
+// Option resolution
 // ---------------------------------------------------------------------------
 
 /**
- * ??????,???????????????
+ * Merge the configured and per-run options into a complete, validated set.
  *
- * ?????:
- * - perRun(????)?????? configured(????)
- * - ????????? mode,??? 'fixed'
- * - onTaskOutcome ? replanner ??????
- * - repairable ??????? onTaskOutcome ? replanner ??
+ * Rules:
+ * - perRun wins over configured for every field
+ * - an unset mode defaults to 'fixed'
+ * - onTaskOutcome and replanner are mutually exclusive
+ * - repairable mode requires exactly one of onTaskOutcome / replanner
  *
- * @param configured - ?????????
- * @param perRun - ?????????(??????)
- * @returns ????????
- * @throws ?? onTaskOutcome ? replanner ????
- * @throws ?? repairable ??????? onTaskOutcome ? replanner
+ * @param configured - deployment-level recovery options
+ * @param perRun - per-run overrides (take precedence)
+ * @returns the resolved options
+ * @throws if both onTaskOutcome and replanner are set
+ * @throws if repairable mode is set without onTaskOutcome or replanner
  */
 export function resolveRecoveryOptions(
   configured: RecoveryOptions | undefined,
   perRun: RecoveryOptions | undefined,
 ): ResolvedRecoveryOptions {
-  // ????:perRun ??? configured
+  // Precedence: perRun overrides configured.
   const mode = perRun?.mode ?? configured?.mode
   const replanner = perRun?.replanner ?? configured?.replanner
   const onTaskOutcome = perRun?.onTaskOutcome ?? configured?.onTaskOutcome
@@ -151,7 +151,7 @@ export function resolveRecoveryOptions(
   const maxPlanRevisions = perRun?.maxPlanRevisions ?? configured?.maxPlanRevisions
   const maxAddedTasks = perRun?.maxAddedTasks ?? configured?.maxAddedTasks
 
-  // ??????? mode ? 'fixed',?? fixed ??
+  // Unset or 'fixed': fixed mode never replans.
   if (mode === undefined || mode === 'fixed') {
     return {
       mode: 'fixed',
@@ -162,21 +162,21 @@ export function resolveRecoveryOptions(
 
   // mode === 'repairable'
 
-  // ????? onTaskOutcome ? replanner,????
+  // Repairable mode: the two replanning strategies are mutually exclusive.
   if (onTaskOutcome && replanner) {
     throw new Error(
       'Cannot specify both onTaskOutcome and replanner in repairable mode - choose one strategy',
     )
   }
 
-  // ???? onTaskOutcome ??? replanner,????
+  // Repairable mode also requires at least one replanning strategy.
   if (!onTaskOutcome && !replanner) {
     throw new Error(
       'Repairable mode requires either onTaskOutcome or replanner to be specified',
     )
   }
 
-  // ????? replanner,????? onTaskOutcome
+  // With only a replanner given, wrap it as onTaskOutcome.
   const resolvedOnTaskOutcome = onTaskOutcome ?? ((outcome: TaskOutcome) => replanner!.replan(outcome))
 
   return {
@@ -189,10 +189,10 @@ export function resolveRecoveryOptions(
 }
 
 /**
- * ?????????? TaskOutcome?
+ * Build a TaskOutcome from a task, its result, and optional verification.
  *
- * @param input - ?????????????????
- * @returns ???? TaskOutcome
+ * @param input - task, result, verification, planRevision and the task list
+ * @returns the assembled TaskOutcome
  */
 export function buildTaskOutcome(input: {
   task: TaskSnapshot
@@ -222,19 +222,19 @@ export function buildTaskOutcome(input: {
 }
 
 /**
- * ?? PlanPatch ?????
+ * Validate a PlanPatch against the existing board and the known agent names.
  *
- * ????:
- * 1. retargetPending ?? taskId ??????????
- * 2. retargetPending ?? assignee ??? agent ???
- * 3. addTasks ?? assignee(???)??? agent ???
- * 4. supersedePending ?? taskId ??????????
- * 5. addTasks ?? dependsOn ??? key/ID ????(????? key ????? ID)
+ * Rules:
+ * 1. retargetPending taskId must exist in the existing tasks
+ * 2. retargetPending assignee must be a known agent name
+ * 3. addTasks assignee (when set) must be a known agent name
+ * 4. supersedePending taskId must exist in the existing tasks
+ * 5. addTasks dependsOn must resolve to a patch key or an existing task ID
  *
- * @param patch - ??????
- * @param existingTasks - ??????
+ * @param patch - the plan patch to check
+ * @param existingTasks - current board used to resolve task IDs
  * @param agentNames - ?? agent ??
- * @throws ??????
+ * @throws on the first violated rule
  */
 export function validatePlanPatch(
   patch: PlanPatch,
@@ -244,21 +244,21 @@ export function validatePlanPatch(
   const existingIds = new Set(existingTasks.map((t) => t.id))
   const agentSet = new Set(agentNames)
 
-  // ?????????????
+  // Patch-declared keys must be unique and non-empty.
   const patchKeys = new Set<string>()
   if (patch.addTasks) {
     for (const task of patch.addTasks) {
-      // ?? key ???
+      // Key must be present.
       if (!task.key || task.key.trim() === '') {
         throw new Error(`addTasks: task key must not be empty`)
       }
-      // ?? key ???
+      // Key must be unique.
       if (patchKeys.has(task.key)) {
         throw new Error(`addTasks: duplicate patch key "${task.key}"`)
       }
       patchKeys.add(task.key)
 
-      // ?? assignee ? agent ???
+      // Assignee, when present, must name a known agent.
       if (task.assignee && !agentSet.has(task.assignee)) {
         throw new Error(
           `addTasks: assignee "${task.assignee}" for task "${task.key}" is not in agent names`,
@@ -266,7 +266,7 @@ export function validatePlanPatch(
       }
     }
 
-    // ?? dependsOn ??:???????? key ????? ID
+    // dependsOn must resolve to a patch key or an existing task ID.
     for (const task of patch.addTasks) {
       if (task.dependsOn) {
         for (const dep of task.dependsOn) {
@@ -280,7 +280,7 @@ export function validatePlanPatch(
     }
   }
 
-  // ?? retargetPending
+  // retargetPending
   if (patch.retargetPending) {
     for (const retarget of patch.retargetPending) {
       if (!existingIds.has(retarget.taskId)) {
@@ -296,7 +296,7 @@ export function validatePlanPatch(
     }
   }
 
-  // ?? supersedePending
+  // supersedePending
   if (patch.supersedePending) {
     for (const supersede of patch.supersedePending) {
       if (!existingIds.has(supersede.taskId)) {
@@ -309,10 +309,10 @@ export function validatePlanPatch(
 }
 
 /**
- * ??????????????????
+ * Total number of tasks added across all recorded plan revisions.
  *
- * @param revisions - ??????,???? addedTasks ??
- * @returns ?????????
+ * @param revisions - revision records, each carrying an addedTasks map
+ * @returns the summed number of added tasks
  */
 export function countAddedTasks(
   revisions: readonly { addedTasks: Readonly<Record<string, string>> }[],
@@ -325,12 +325,12 @@ export function countAddedTasks(
 }
 
 /**
- * ?? PlanPatch ???(???????)?
+ * Stable signature for a PlanPatch (used to detect duplicate revisions).
  *
- * ????:?????????????,?????????????
+ * Note: ordering is normalised, so a reordered equivalent patch signs the same.
  *
- * @param patch - ????????
- * @returns ?????
+ * @param patch - the plan patch to sign
+ * @returns the signature string
  */
 export function planPatchSignature(patch: PlanPatch): string {
   const parts: string[] = []

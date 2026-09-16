@@ -43,3 +43,9 @@ apps/web/dist/
 worktrees/
 .agents/worktrees/
 .typert-*/
+
+# Local lint/run dumps accidentally committed at the repo root (lint-now.txt,
+# lint2.txt, lint3.txt, e2e-out.txt). They embed machine-local absolute paths
+# and are regenerated on every run, so they are noise in the tree.
+lint*.txt
+e2e-out.txt
