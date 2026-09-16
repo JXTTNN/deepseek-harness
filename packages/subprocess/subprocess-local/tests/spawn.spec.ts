@@ -75,7 +75,11 @@ async function waitGone(pid: number, timeoutMs = 5_000): Promise<void> {
         const state = stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
         if (state === 'Z' || state === 'X') return
       } catch (error: unknown) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+        // ENOENT means the /proc entry is gone outright; ESRCH means the pid
+        // was reaped between the lookup and the read. Both are the "gone"
+        // condition this poll is looking for, so treat them the same.
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'ENOENT' || code === 'ESRCH') return
         throw error
       }
     }
