@@ -1,4 +1,4 @@
-﻿name: E2E (real API)
+name: E2E (real API)
 
 # Real-API end-to-end suite (`pnpm run test:e2e`). Supports any OpenAI-compatible
 # API via DEEPSEEK_BASE_URL (defaults to https://api.deepseek.com). When using a
@@ -113,7 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
 
       - uses: actions/setup-node@v6
         with:
