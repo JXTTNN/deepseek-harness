@@ -35,6 +35,7 @@
     "lib/index.js",
     "lib/startup.js",
     "cordis.patch.yml",
+    "browser.patch.yml",
     "presets/standard.patch.yml",
     "presets/ptc.patch.yml",
     "presets/minimal.patch.yml",
@@ -50,6 +51,7 @@
     "bundle": {
       "patch": [
         "./cordis.patch.yml",
+        "./browser.patch.yml",
         "./presets/standard.patch.yml",
         "./presets/ptc.patch.yml",
         "./presets/minimal.patch.yml",
@@ -71,6 +73,8 @@
     "@deepseek-ai/dsh-api-workspace-controller": "workspace:*",
     "@deepseek-ai/dsh-api-workspace-files": "workspace:*",
     "@deepseek-ai/dsh-app-boot": "workspace:*",
+    "@deepseek-ai/dsh-browser-use": "workspace:*",
+    "@deepseek-ai/dsh-experimental-browser-use-playwright-mcp": "workspace:*",
     "@deepseek-ai/dsh-client-connection": "workspace:*",
     "@deepseek-ai/dsh-client-file-upload": "workspace:*",
     "@deepseek-ai/dsh-client-hmr": "workspace:*",
@@ -219,6 +223,7 @@
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
     "@deepseek-ai/dsh-brand": "workspace:*",
+    "@deepseek-ai/dsh-experimental-browser-use-playwright-mcp": "workspace:*",
     "@deepseek-ai/dsh-fs": "workspace:*",
     "@deepseek-ai/dsh-fs-local": "workspace:*",
     "@deepseek-ai/dsh-home-paths": "workspace:*",
