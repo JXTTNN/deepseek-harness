@@ -1,0 +1,13 @@
+# The dsh-web-app browser-use layer: mount the exclusive browser-use provider
+# registration and the Playwright MCP (Chromium) backend for every web-profile
+# Session. Browser tools are intentionally absent from any preset toolOrder so
+# prompt assembly still succeeds when a Session has no browser connection.
+- insert:
+    - id: browser-use
+      name: '@deepseek-ai/dsh-browser-use'
+
+    - id: browser-use-playwright-mcp
+      name: '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp'
+      config:
+        mode: launch
+        headless: true
