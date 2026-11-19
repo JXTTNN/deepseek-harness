@@ -148,7 +148,7 @@ function resolveBackoff(config: BackoffConfig | undefined, path: string): Resolv
 
 /**
  * Validate, default, and detach one provider-owned retry policy.
- * @param config - optional provider configuration; omission selects normal defaults.
+ * @param config - optional provider configuration; omission selects unbounded (always) retries.
  * @param path - diagnostic path naming the provider config that owns the value.
  * @returns an immutable policy safe to capture in provider registration state.
  */
@@ -156,11 +156,12 @@ export function resolveRetryPolicy(
   config: RetryPolicyConfig | undefined,
   path: string,
 ): ResolvedRetryPolicy {
+  // Unbounded by default: every model-request failure is retried until it
+  // succeeds, the caller cancels, or the runtime is disposed. Providers that
+  // need a ceiling opt into `normal` mode explicitly.
   if (config === undefined) {
     return Object.freeze({
-      mode: 'normal',
-      maxRetries: DEFAULT_MAX_RETRIES,
-      retryableCodes: DEFAULT_RETRYABLE_CODES,
+      mode: 'always',
       ...resolveBackoff(undefined, `${path}.backoff`),
     })
   }
